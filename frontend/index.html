@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Source Reliability Assessor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">SR</span>
+        <div>
+          <h1>Source Reliability Assessor</h1>
+          <p class="tagline">
+            Domain priors · LLM content analysis · Independent corroboration
+          </p>
+        </div>
+      </div>
+      <div id="health" class="health" aria-live="polite"></div>
+    </header>
+
+    <main>
+      <section class="panel input-panel">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="url" role="tab">URL</button>
+          <button class="tab" data-tab="text" role="tab">Paste text</button>
+        </div>
+
+        <div class="tab-pane active" data-pane="url">
+          <label for="url">Article URL</label>
+          <input
+            id="url"
+            type="url"
+            placeholder="https://www.reuters.com/world/..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="tab-pane" data-pane="text">
+          <label for="text">Article text</label>
+          <textarea
+            id="text"
+            rows="8"
+            placeholder="Paste the full article text here..."
+          ></textarea>
+        </div>
+
+        <label for="claim">Specific claim to verify (optional)</label>
+        <input
+          id="claim"
+          type="text"
+          placeholder="e.g. 'Country X signed treaty Y on date Z'"
+        />
+
+        <div class="actions">
+          <button id="run" class="primary">Assess reliability</button>
+          <span id="status" class="status"></span>
+        </div>
+      </section>
+
+      <section id="results" class="panel results hidden" aria-live="polite"></section>
+    </main>
+
+    <footer>
+      <small>
+        Reliability scores are imperfect heuristics. Always read sources critically.
+      </small>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
