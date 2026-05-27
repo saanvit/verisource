@@ -8,6 +8,7 @@ from backend.models import (
     DomainReputation,
     ReliabilityReport,
 )
+from backend.reliability import calibration
 
 
 def _verdict(score: float) -> str:
@@ -129,6 +130,14 @@ def aggregate(
         overall = min(overall, 35.0)
 
     overall = round(max(0.0, min(100.0, overall)), 1)
+
+    # Optional post-processing: if a calibrator is configured (via the
+    # CALIBRATION_PATH env var), remap raw → calibrated. Domain-type hard
+    # caps (satire/conspiracy/state) were already applied above and are
+    # preserved because the calibrator is fit on raw post-cap scores.
+    cal = calibration.get_runtime()
+    if cal is not None:
+        overall = round(cal.apply(overall), 1)
 
     verdict = _verdict(overall)
     return ReliabilityReport(

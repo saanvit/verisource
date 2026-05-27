@@ -34,6 +34,36 @@ class DomainReputation(BaseModel):
     rationale: str
 
 
+class ClaimEvidence(BaseModel):
+    """One retrieved hit used as evidence for a specific atomic claim."""
+
+    title: str
+    url: str
+    domain: str
+    domain_score: float
+    snippet: str
+    agreement: Literal["supports", "contradicts", "unclear"] = "unclear"
+
+
+class ClaimVerification(BaseModel):
+    """Result of verifying a single atomic claim against retrieved evidence.
+
+    ``score`` is 0-100: higher means the claim is well-supported by
+    independent reliable sources. ``support_ratio`` and
+    ``contradict_ratio`` are weighted by per-source reputation; the sum
+    can be less than 1 when sources are labeled unclear or absent.
+    """
+
+    claim: str
+    score: float = Field(..., ge=0, le=100)
+    status: Literal["supported", "contradicted", "mixed", "unverified"]
+    support_ratio: float = Field(..., ge=0, le=1)
+    contradict_ratio: float = Field(..., ge=0, le=1)
+    n_evidence: int
+    n_high_quality: int
+    evidence: list[ClaimEvidence]
+
+
 class ContentAnalysis(BaseModel):
     """LLM-driven content reliability signals."""
 
@@ -46,6 +76,18 @@ class ContentAnalysis(BaseModel):
     red_flags: list[str]
     citations_present: bool
     summary: str
+    # Populated only by the per-claim pipeline. Default None keeps the API
+    # response shape backwards-compatible with existing clients.
+    claim_verifications: list[ClaimVerification] | None = None
+    coverage: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description=(
+            "Fraction of decomposed claims that received any independent evidence. "
+            "Populated only by the per-claim pipeline."
+        ),
+    )
 
 
 class CorroboratingSource(BaseModel):

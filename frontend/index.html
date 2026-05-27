@@ -4,27 +4,61 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Source Reliability Assessor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div class="aurora" aria-hidden="true"></div>
+
     <header class="topbar">
-      <div class="brand">
-        <span class="logo">SR</span>
-        <div>
-          <h1>Source Reliability Assessor</h1>
-          <p class="tagline">
-            Domain priors · LLM content analysis · Independent corroboration
-          </p>
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2 L21 7 V14 C21 18.5 17 21.5 12 22 C7 21.5 3 18.5 3 14 V7 Z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M8 12 L11 15 L16 9.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <div class="brand-text">
+            <h1>Source Reliability Assessor</h1>
+            <p class="tagline">Domain priors · LLM analysis · Independent corroboration</p>
+          </div>
         </div>
+        <div id="health" class="health" aria-live="polite"></div>
       </div>
-      <div id="health" class="health" aria-live="polite"></div>
     </header>
 
     <main>
       <section class="panel input-panel">
+        <header class="panel-head">
+          <div class="step">
+            <span class="step-num">1</span>
+            <span class="step-line"></span>
+            <span class="step-num inactive">2</span>
+          </div>
+          <h2>Submit an article for assessment</h2>
+          <p class="panel-sub">Paste a URL or the article body. We'll decompose the claims and check each against independent sources.</p>
+        </header>
+
         <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="url" role="tab">URL</button>
-          <button class="tab" data-tab="text" role="tab">Paste text</button>
+          <button class="tab active" data-tab="url" role="tab">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M10 14a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+              <path d="M14 10a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+            URL
+          </button>
+          <button class="tab" data-tab="text" role="tab">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+            Paste text
+          </button>
         </div>
 
         <div class="tab-pane active" data-pane="url">
@@ -32,7 +66,7 @@
           <input
             id="url"
             type="url"
-            placeholder="https://www.reuters.com/world/..."
+            placeholder="https://www.reuters.com/world/…"
             autocomplete="off"
           />
         </div>
@@ -41,31 +75,93 @@
           <label for="text">Article text</label>
           <textarea
             id="text"
-            rows="8"
-            placeholder="Paste the full article text here..."
+            rows="7"
+            placeholder="Paste the full article body here…"
           ></textarea>
         </div>
 
-        <label for="claim">Specific claim to verify (optional)</label>
+        <label for="claim">
+          Specific claim to verify
+          <span class="optional">— optional</span>
+        </label>
         <input
           id="claim"
           type="text"
-          placeholder="e.g. 'Country X signed treaty Y on date Z'"
+          placeholder="e.g. ‘Country X signed treaty Y on date Z’"
         />
 
+        <label>Pipeline</label>
+        <div class="mode-toggle" role="radiogroup" aria-label="Pipeline">
+          <button
+            type="button"
+            class="mode active"
+            data-mode="per-claim"
+            role="radio"
+            aria-checked="true"
+          >
+            <span class="mode-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M9 5h11M9 12h11M9 19h11" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+                <circle cx="4.5" cy="5" r="1.5" fill="currentColor"/>
+                <circle cx="4.5" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="4.5" cy="19" r="1.5" fill="currentColor"/>
+              </svg>
+            </span>
+            <span class="mode-body">
+              <span class="mode-title">Per-claim</span>
+              <span class="mode-sub">Decompose, verify each claim independently</span>
+            </span>
+            <span class="mode-check">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m5 12 5 5L20 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="mode"
+            data-mode="default"
+            role="radio"
+            aria-checked="false"
+          >
+            <span class="mode-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.7"/>
+                <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span class="mode-body">
+              <span class="mode-title">Default</span>
+              <span class="mode-sub">Single-shot, one cross-reference search</span>
+            </span>
+            <span class="mode-check">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m5 12 5 5L20 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
+        </div>
+
         <div class="actions">
-          <button id="run" class="primary">Assess reliability</button>
+          <button id="run" class="primary">
+            <span>Assess reliability</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M2.5 7h9m0 0-3-3m3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <span id="status" class="status"></span>
         </div>
       </section>
 
-      <section id="results" class="panel results hidden" aria-live="polite"></section>
+      <section id="results" class="results hidden" aria-live="polite"></section>
     </main>
 
     <footer>
-      <small>
-        Reliability scores are imperfect heuristics. Always read sources critically.
-      </small>
+      <div class="footer-inner">
+        <span>Reliability scores are imperfect heuristics.</span>
+        <span class="dot" aria-hidden="true">·</span>
+        <span>Always read sources critically.</span>
+      </div>
     </footer>
 
     <script src="/app.js"></script>

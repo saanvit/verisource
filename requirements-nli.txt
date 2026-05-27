@@ -1,0 +1,14 @@
+# Heavy ML stack for the local NLI stance-labeler.
+# Install only when you intend to train or run the NLI model:
+#   pip install -r requirements-nli.txt
+#
+# A CUDA build of torch is recommended; on Apple Silicon, the default
+# CPU wheel uses MPS automatically.
+
+transformers>=4.45,<5
+torch>=2.2
+datasets>=2.20
+accelerate>=0.34
+evaluate>=0.4
+scikit-learn>=1.4
+sentencepiece>=0.2  # DeBERTa-v3 tokenizer requires this

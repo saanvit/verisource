@@ -15,3 +15,8 @@ env/
 node_modules/
 dist/
 build/
+
+# Fine-tuned model checkpoints + downloaded HF dataset caches.
+models/
+training/runs/
+hf_cache/
