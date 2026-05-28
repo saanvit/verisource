@@ -138,7 +138,34 @@ Output STRICT JSON only:
 _llm_call_counter = {"ok": 0, "fail": 0, "last_error": ""}
 
 
-async def _call_mistral_one(client: Any, premise: str, hypothesis: str) -> str:
+class _RateLimiter:
+    """Async rate limiter: enforces at most ``rps`` requests per second
+    across all concurrent callers. Cheap implementation good enough for
+    eval scripts — every caller awaits the next available slot."""
+
+    def __init__(self, rps: float):
+        self.min_interval = 1.0 / rps if rps > 0 else 0.0
+        self._lock = asyncio.Lock()
+        self._next_allowed = 0.0
+
+    async def acquire(self) -> None:
+        if self.min_interval <= 0:
+            return
+        async with self._lock:
+            now = time.perf_counter()
+            wait = self._next_allowed - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+                now = time.perf_counter()
+            self._next_allowed = now + self.min_interval
+
+
+async def _call_mistral_one(
+    client: Any,
+    premise: str,
+    hypothesis: str,
+    rate_limiter: _RateLimiter,
+) -> str:
     """One Mistral call → one label string. Retries on transient failures
     (rate limits, network blips) with exponential backoff via tenacity.
     On terminal failure, records the error and returns "unclear" so the
@@ -153,8 +180,8 @@ async def _call_mistral_one(client: Any, premise: str, hypothesis: str) -> str:
     from backend.config import settings
 
     @retry(
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=1, min=1, max=16),
+        stop=stop_after_attempt(6),
+        wait=wait_exponential(multiplier=2, min=2, max=60),
         retry=retry_if_exception_type(Exception),
         reraise=True,
     )
@@ -173,6 +200,7 @@ async def _call_mistral_one(client: Any, premise: str, hypothesis: str) -> str:
         lbl = str(data.get("label", "unclear")).lower().strip()
         return lbl if lbl in ("supports", "contradicts", "unclear") else "unclear"
 
+    await rate_limiter.acquire()
     try:
         result = await asyncio.to_thread(_go)
         _llm_call_counter["ok"] += 1
@@ -183,11 +211,17 @@ async def _call_mistral_one(client: Any, premise: str, hypothesis: str) -> str:
         return "unclear"
 
 
-async def run_llm(rows: list[dict], concurrency: int = 2) -> tuple[list[int], float]:
-    """Run the Mistral stance labeler on every row, with bounded concurrency.
+async def run_llm(
+    rows: list[dict],
+    concurrency: int = 1,
+    rps: float = 1.0,
+) -> tuple[list[int], float]:
+    """Run the Mistral stance labeler on every row, rate-limited.
 
-    Default concurrency=2 is conservative for Mistral's free tier (~1-2 req/s).
-    Bump it up if you have a paid tier and want to finish faster.
+    Mistral's free tier is roughly 1 req/sec sustained. ``concurrency`` caps
+    in-flight requests; ``rps`` is the *true* throughput cap enforced by a
+    shared rate limiter (the binding constraint on free tier). Bump both
+    for paid tiers.
     """
     from mistralai import Mistral
 
@@ -205,10 +239,13 @@ async def run_llm(rows: list[dict], concurrency: int = 2) -> tuple[list[int], fl
 
     client = Mistral(api_key=settings.mistral_api_key)
     sem = asyncio.Semaphore(max(1, concurrency))
+    rate_limiter = _RateLimiter(rps)
 
     async def _one(r: dict) -> str:
         async with sem:
-            return await _call_mistral_one(client, r["premise"], r["hypothesis"])
+            return await _call_mistral_one(
+                client, r["premise"], r["hypothesis"], rate_limiter
+            )
 
     t0 = time.perf_counter()
     label_strs = await asyncio.gather(*[_one(r) for r in rows])
@@ -308,8 +345,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--llm-concurrency",
         type=int,
-        default=2,
-        help="Mistral concurrent request cap. Default 2 (safe for free tier).",
+        default=1,
+        help="Mistral in-flight request cap. Default 1 (serial, safe for free tier).",
+    )
+    p.add_argument(
+        "--llm-rps",
+        type=float,
+        default=1.0,
+        help="Mistral max requests/sec. Default 1.0 — free tier limit. "
+        "Bump to ~5 for paid tiers.",
     )
     p.add_argument("--output", type=Path, default=None, help="Write per-example predictions JSON.")
     args = p.parse_args(argv)
@@ -341,7 +385,9 @@ def main(argv: list[str] | None = None) -> int:
         llm_rows = _subsample(rows, args.llm_n, args.seed) if args.llm_n else rows
         print(f"\n[llm] running Mistral on {len(llm_rows)} examples...")
         llm_refs = [int(r["label"]) for r in llm_rows]
-        preds, elapsed = asyncio.run(run_llm(llm_rows, concurrency=args.llm_concurrency))
+        preds, elapsed = asyncio.run(
+            run_llm(llm_rows, concurrency=args.llm_concurrency, rps=args.llm_rps)
+        )
         summaries.append(_summarize("llm", llm_refs, preds, elapsed))
         per_example["llm"] = preds
         per_example["llm_refs"] = llm_refs
