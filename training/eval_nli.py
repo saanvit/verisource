@@ -131,34 +131,64 @@ Output STRICT JSON only:
 """
 
 
+# Tracks how many calls actually returned a parseable label vs. fell back
+# to "unclear" due to an exception. Surfaced after run_llm() so silent
+# failures (rate limits, auth, schema drift) can't masquerade as a real
+# eval result the way the original v1 of this script did.
+_llm_call_counter = {"ok": 0, "fail": 0, "last_error": ""}
+
+
 async def _call_mistral_one(client: Any, premise: str, hypothesis: str) -> str:
-    """One Mistral call → one label string. Errors return "unclear" so the
-    eval continues on transient failures rather than aborting the whole run."""
+    """One Mistral call → one label string. Retries on transient failures
+    (rate limits, network blips) with exponential backoff via tenacity.
+    On terminal failure, records the error and returns "unclear" so the
+    eval continues — but the run_llm summary will tell us how many."""
+    from tenacity import (
+        retry,
+        retry_if_exception_type,
+        stop_after_attempt,
+        wait_exponential,
+    )
+
     from backend.config import settings
 
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=16),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+    )
     def _go() -> str:
-        try:
-            resp = client.chat.complete(
-                model=settings.mistral_model,
-                messages=[
-                    {"role": "system", "content": SINGLE_PAIR_SYSTEM_PROMPT},
-                    {"role": "user", "content": _llm_prompt(premise, hypothesis)},
-                ],
-                temperature=0.0,
-                response_format={"type": "json_object"},
-            )
-            raw = resp.choices[0].message.content or ""
-            data = json.loads(raw)
-            lbl = str(data.get("label", "unclear")).lower().strip()
-            return lbl if lbl in ("supports", "contradicts", "unclear") else "unclear"
-        except Exception:
-            return "unclear"
+        resp = client.chat.complete(
+            model=settings.mistral_model,
+            messages=[
+                {"role": "system", "content": SINGLE_PAIR_SYSTEM_PROMPT},
+                {"role": "user", "content": _llm_prompt(premise, hypothesis)},
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        raw = resp.choices[0].message.content or ""
+        data = json.loads(raw)
+        lbl = str(data.get("label", "unclear")).lower().strip()
+        return lbl if lbl in ("supports", "contradicts", "unclear") else "unclear"
 
-    return await asyncio.to_thread(_go)
+    try:
+        result = await asyncio.to_thread(_go)
+        _llm_call_counter["ok"] += 1
+        return result
+    except Exception as e:  # noqa: BLE001 - we want to capture everything here
+        _llm_call_counter["fail"] += 1
+        _llm_call_counter["last_error"] = f"{type(e).__name__}: {e}"
+        return "unclear"
 
 
-async def run_llm(rows: list[dict], concurrency: int = 8) -> tuple[list[int], float]:
-    """Run the Mistral stance labeler on every row, with bounded concurrency."""
+async def run_llm(rows: list[dict], concurrency: int = 2) -> tuple[list[int], float]:
+    """Run the Mistral stance labeler on every row, with bounded concurrency.
+
+    Default concurrency=2 is conservative for Mistral's free tier (~1-2 req/s).
+    Bump it up if you have a paid tier and want to finish faster.
+    """
     from mistralai import Mistral
 
     from backend.config import settings
@@ -167,6 +197,11 @@ async def run_llm(rows: list[dict], concurrency: int = 8) -> tuple[list[int], fl
         raise RuntimeError(
             "MISTRAL_API_KEY is not set. The llm backend cannot run without it."
         )
+
+    # Reset counters in case run_llm gets called more than once per process.
+    _llm_call_counter["ok"] = 0
+    _llm_call_counter["fail"] = 0
+    _llm_call_counter["last_error"] = ""
 
     client = Mistral(api_key=settings.mistral_api_key)
     sem = asyncio.Semaphore(max(1, concurrency))
@@ -179,6 +214,13 @@ async def run_llm(rows: list[dict], concurrency: int = 8) -> tuple[list[int], fl
     label_strs = await asyncio.gather(*[_one(r) for r in rows])
     elapsed = time.perf_counter() - t0
     preds = [LABEL_NAME_TO_ID.get(s, LABEL_NAME_TO_ID["unclear"]) for s in label_strs]
+
+    ok = _llm_call_counter["ok"]
+    fail = _llm_call_counter["fail"]
+    print(f"  [llm] {ok}/{ok + fail} calls succeeded.")
+    if fail:
+        print(f"  [llm] WARNING: {fail} call(s) failed → fell back to 'unclear'.")
+        print(f"  [llm] last error: {_llm_call_counter['last_error']}")
     return preds, elapsed
 
 
@@ -263,6 +305,12 @@ def main(argv: list[str] | None = None) -> int:
         "Local runs on --n; LLM runs on a (possibly smaller) subset of those.",
     )
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--llm-concurrency",
+        type=int,
+        default=2,
+        help="Mistral concurrent request cap. Default 2 (safe for free tier).",
+    )
     p.add_argument("--output", type=Path, default=None, help="Write per-example predictions JSON.")
     args = p.parse_args(argv)
 
@@ -293,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
         llm_rows = _subsample(rows, args.llm_n, args.seed) if args.llm_n else rows
         print(f"\n[llm] running Mistral on {len(llm_rows)} examples...")
         llm_refs = [int(r["label"]) for r in llm_rows]
-        preds, elapsed = asyncio.run(run_llm(llm_rows))
+        preds, elapsed = asyncio.run(run_llm(llm_rows, concurrency=args.llm_concurrency))
         summaries.append(_summarize("llm", llm_refs, preds, elapsed))
         per_example["llm"] = preds
         per_example["llm_refs"] = llm_refs
