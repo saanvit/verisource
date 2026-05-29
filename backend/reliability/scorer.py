@@ -45,23 +45,67 @@ def _explain(
     content: ContentAnalysis,
     xref: CrossReferenceResult,
 ) -> str:
-    parts = [
-        f"Overall reliability is {overall}/100 ({verdict}).",
-        f"Domain prior: {domain.domain} scores {domain.score}/100 "
-        f"(type={domain.type}, bias={domain.bias}).",
-        f"Content analysis: factuality {content.factuality}, objectivity {content.objectivity}, "
-        f"transparency {content.transparency}, sensationalism-restraint {content.sensationalism}.",
-    ]
-    if xref.n_sources:
-        parts.append(
-            f"Cross-reference: {xref.n_sources} independent sources retrieved "
-            f"({xref.n_high_quality} high-quality), consensus={xref.consensus}."
+    """Short, user-facing summary of the verdict.
+
+    Designed to *complement* the breakdown cards, not duplicate them. The
+    cards already show every numeric score; this text surfaces the
+    decision-relevant nuance — the strongest positive signal and the
+    biggest caveat — in 1-3 plain sentences. Don't add a "Red flags:"
+    dump here; red flags get their own section in the UI.
+    """
+    headline = f"This source is {verdict.replace('-', ' ')} ({overall}/100)."
+
+    # Identify the strongest single positive signal, in priority order:
+    # domain reputation > corroboration > content quality.
+    strongest: str | None = None
+    if domain.type not in ("unknown", "satire", "conspiracy", "state") and domain.score >= 80:
+        strongest = (
+            f"the publisher ({domain.domain}) is a well-established {domain.type} "
+            f"with a strong reliability prior"
         )
-    else:
-        parts.append("Cross-reference: no independent sources retrieved.")
-    if content.red_flags:
-        parts.append("Red flags: " + "; ".join(content.red_flags) + ".")
-    return " ".join(parts)
+    elif xref.consensus == "strong-support":
+        strongest = (
+            f"{xref.n_high_quality} high-quality independent sources strongly corroborate "
+            f"the article's claims"
+        )
+    elif xref.consensus == "weak-support" and xref.n_high_quality >= 2:
+        strongest = (
+            f"{xref.n_high_quality} high-quality independent sources partially corroborate "
+            f"the article's claims"
+        )
+    elif content.factuality >= 80:
+        strongest = "the article's factual content scores high on an LLM-driven content analysis"
+
+    # Identify the biggest single negative signal/caveat, in priority order:
+    # special domain types > LLM-flagged content issues > unknown source.
+    caveat: str | None = None
+    if domain.type == "satire":
+        caveat = "the publisher is a known satire/parody outlet — content is not factual"
+    elif domain.type == "conspiracy":
+        caveat = "the publisher has a history of false claims and is widely classified as a conspiracy outlet"
+    elif domain.type == "state":
+        caveat = "the publisher is state-controlled and coverage may reflect government messaging"
+    elif xref.consensus == "contradicts":
+        caveat = "independent sources contradict key claims in the article"
+    elif content.objectivity < 50 or content.sensationalism < 50:
+        caveat = "the article's tone is opinionated or sensationalist (see Content analysis)"
+    elif content.red_flags:
+        n = len(content.red_flags)
+        caveat = (
+            f"the content analyzer flagged {n} issue{'s' if n != 1 else ''} — "
+            "see the Red flags section below"
+        )
+    elif domain.type == "unknown" and not xref.n_sources:
+        caveat = "the source is not in our reputation database and no independent corroboration was retrieved"
+    elif domain.type == "unknown":
+        caveat = "the source is not in our reputation database — judgment relies on content + corroboration alone"
+
+    sentences = [headline]
+    if strongest:
+        sentences.append(f"Strongest signal: {strongest}.")
+    if caveat:
+        sentences.append(f"Caveat: {caveat}.")
+    return " ".join(sentences)
 
 
 SATIRE_RED_FLAG = (

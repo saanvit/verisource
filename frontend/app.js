@@ -284,8 +284,21 @@ function renderReport(report) {
             ${report.verdict.replaceAll("-", " ")}
           </span>
           <span class="badge outline">Confidence ${(report.confidence * 100).toFixed(0)}%</span>
-          <span class="badge outline">${escapeHtml(report.domain_reputation.domain)}</span>
-          <span class="badge outline">Bias · ${escapeHtml(report.domain_reputation.bias)}</span>
+          ${
+            report.domain_reputation.domain && report.domain_reputation.domain !== "unknown"
+              ? `<span class="badge outline">${escapeHtml(report.domain_reputation.domain)}</span>`
+              : ""
+          }
+          ${
+            report.domain_reputation.bias && report.domain_reputation.bias !== "unknown"
+              ? `<span class="badge outline">Bias · ${escapeHtml(report.domain_reputation.bias)}</span>`
+              : ""
+          }
+          ${
+            report.cross_reference && report.cross_reference.n_sources > 0
+              ? `<span class="badge outline">${report.cross_reference.n_sources} sources · ${report.cross_reference.n_high_quality} high-quality</span>`
+              : ""
+          }
         </div>
         <p class="explanation">${escapeHtml(report.explanation)}</p>
       </div>
