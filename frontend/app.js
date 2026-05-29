@@ -47,9 +47,10 @@ async function loadHealth() {
 }
 
 function verdictBadgeClass(verdict) {
+  // 4-tone palette (lime collapsed into green to reduce visual noise).
   return {
     "highly-reliable": "green",
-    "generally-reliable": "lime",
+    "generally-reliable": "green",
     mixed: "yellow",
     questionable: "orange",
     unreliable: "red",
@@ -57,9 +58,10 @@ function verdictBadgeClass(verdict) {
 }
 
 function scoreColor(score) {
-  // Modern dark palette: emerald → amber → rose.
-  if (score >= 85) return "#34d399";
-  if (score >= 70) return "#84cc16";
+  // 4-bucket palette. Emerald threshold shifted 85 → 80 to compensate
+  // for absorbing the lime band — 70–79 now reads as the mixed-amber
+  // tone to clearly distinguish "mostly reliable" from "fully reliable".
+  if (score >= 80) return "#34d399";
   if (score >= 50) return "#fbbf24";
   if (score >= 30) return "#fb923c";
   return "#f87171";
@@ -67,9 +69,8 @@ function scoreColor(score) {
 
 function scoreGlow(score) {
   // Soft RGBA halo behind the score ring.
-  if (score >= 85) return "rgba(52, 211, 153, 0.35)";
-  if (score >= 70) return "rgba(132, 204, 22, 0.30)";
-  if (score >= 50) return "rgba(251, 191, 36, 0.28)";
+  if (score >= 80) return "rgba(52, 211, 153, 0.35)";
+  if (score >= 50) return "rgba(251, 191, 36, 0.30)";
   if (score >= 30) return "rgba(251, 146, 60, 0.30)";
   return "rgba(248, 113, 113, 0.32)";
 }
@@ -162,7 +163,7 @@ const ACTION_LABEL = {
 const ACTION_TONE = {
   relabel_hit: "yellow",
   research_claim: "outline",
-  split_claim: "lime",
+  split_claim: "green",
   noop: "outline",
 };
 
@@ -370,83 +371,138 @@ function listOrNone(items, cls, emptyMsg = "None detected.") {
   return `<ul class="${cls}">${items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul>`;
 }
 
+// Strip the verdict + score from the explanation string so the headline
+// reads as a single fluid sentence ("Strongest signal: …; Caveat: …")
+// without redundantly repeating "This source is X (Y/100)" right next to
+// the giant score ring.
+function heroSummary(explanation) {
+  if (!explanation) return "";
+  return explanation.replace(/^This source is [^.]+\.\s*/i, "").trim();
+}
+
 function renderReport(report) {
   const overall = Math.round(report.overall_score);
   const color = scoreColor(overall);
   const glow = scoreGlow(overall);
   const w = report.weights || {};
   const ca = report.content_analysis || {};
+  const xref = report.cross_reference || {};
+  const dom = report.domain_reputation || {};
   const hasPerClaim = Array.isArray(ca.claim_verifications) && ca.claim_verifications.length > 0;
+  const hasReflection = Array.isArray(ca.reflection_trace) && ca.reflection_trace.length > 0;
+  const hasRedFlags = Array.isArray(ca.red_flags) && ca.red_flags.length > 0;
+  const summary = heroSummary(report.explanation);
+
+  // Dominant cross-reference panel: only render the rich panel for
+  // per-claim modes (where the per-source list is meaningful).
+  const crossRefPanel = `
+    <div class="cross-ref-panel" data-reveal="cross-ref">
+      <div class="cross-ref-head">
+        <div class="cross-ref-label">
+          <span class="section-meta">Cross-reference</span>
+          <h3>Independent corroboration</h3>
+        </div>
+        <div class="cross-ref-score-block">
+          <div class="cross-ref-score" style="color:${scoreColor(Math.round(xref.score || 0))}">${Math.round(xref.score || 0)}</div>
+          <div class="cross-ref-score-meta">
+            <span class="consensus-pill ${escapeHtml(xref.consensus || 'no-data')}">
+              <span class="dot"></span>
+              ${escapeHtml((xref.consensus || 'no-data').replaceAll('-', ' '))}
+            </span>
+            <span class="sub">weight ${(w.cross_reference * 100).toFixed(0)}%</span>
+          </div>
+        </div>
+      </div>
+      <div class="cross-ref-stats">
+        <div class="stat">
+          <div class="stat-num">${xref.n_sources || 0}</div>
+          <div class="stat-label">independent sources</div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <div class="stat-num">${xref.n_high_quality || 0}</div>
+          <div class="stat-label">high-quality</div>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat">
+          <div class="stat-num">${Math.round((xref.n_high_quality || 0) / Math.max(xref.n_sources || 1, 1) * 100)}<span class="stat-num-sub">%</span></div>
+          <div class="stat-label">high-quality rate</div>
+        </div>
+      </div>
+    </div>`;
 
   return `
-    <div class="score-hero" style="--score-glow:${glow}">
-      <div class="score-ring" style="--pct:${overall};--ring:${color}">
-        <div class="score-num">${overall}</div>
-        <div class="score-denom">/ 100</div>
-      </div>
-      <div class="score-content">
-        <div class="verdict-row">
-          <span class="badge ${verdictBadgeClass(report.verdict)}">
-            <span class="dot"></span>
-            ${report.verdict.replaceAll("-", " ")}
-          </span>
-          <span class="badge outline">Confidence ${(report.confidence * 100).toFixed(0)}%</span>
-          ${
-            report.domain_reputation.domain && report.domain_reputation.domain !== "unknown"
-              ? `<span class="badge outline">${escapeHtml(report.domain_reputation.domain)}</span>`
-              : ""
-          }
-          ${
-            report.domain_reputation.bias && report.domain_reputation.bias !== "unknown"
-              ? `<span class="badge outline">Bias · ${escapeHtml(report.domain_reputation.bias)}</span>`
-              : ""
-          }
-          ${
-            report.cross_reference && report.cross_reference.n_sources > 0
-              ? `<span class="badge outline">${report.cross_reference.n_sources} sources · ${report.cross_reference.n_high_quality} high-quality</span>`
-              : ""
-          }
+    <div class="score-hero" style="--score-glow:${glow}" data-reveal="hero">
+      <div class="score-hero-top">
+        <div class="score-ring" style="--pct:${overall};--ring:${color}">
+          <div class="score-num">${overall}</div>
+          <div class="score-denom">/ 100</div>
         </div>
-        <p class="explanation">${escapeHtml(report.explanation)}</p>
+        <div class="score-content">
+          <div class="verdict-headline">
+            <span class="badge ${verdictBadgeClass(report.verdict)} verdict-badge">
+              <span class="dot"></span>
+              ${report.verdict.replaceAll("-", " ")}
+            </span>
+            <h1 class="hero-h1">${escapeHtml(verdictHeadline(report.verdict))}</h1>
+          </div>
+          <p class="hero-summary">${escapeHtml(summary)}</p>
+        </div>
+      </div>
+      <div class="score-hero-bar">
+        <span class="meta-pill"><span class="meta-key">Confidence</span><span class="meta-val">${(report.confidence * 100).toFixed(0)}%</span></span>
+        ${
+          dom.domain && dom.domain !== "unknown"
+            ? `<span class="meta-pill"><span class="meta-key">Source</span><span class="meta-val">${escapeHtml(dom.domain)}</span></span>`
+            : ""
+        }
+        ${
+          dom.bias && dom.bias !== "unknown"
+            ? `<span class="meta-pill"><span class="meta-key">Bias</span><span class="meta-val">${escapeHtml(dom.bias)}</span></span>`
+            : ""
+        }
+        ${
+          xref.n_sources > 0
+            ? `<span class="meta-pill"><span class="meta-key">Sources</span><span class="meta-val">${xref.n_sources} · ${xref.n_high_quality} HQ</span></span>`
+            : ""
+        }
       </div>
     </div>
 
-    <div class="grid-3">
-      <div class="card">
-        <h3>Domain prior</h3>
-        <div class="big">${Math.round(report.domain_reputation.score)}<span class="sub">/100</span></div>
-        <div class="sub"><strong>${escapeHtml(report.domain_reputation.type)}</strong> · weight ${(w.domain * 100).toFixed(0)}%</div>
-        <div class="sub">${escapeHtml(report.domain_reputation.rationale)}</div>
-      </div>
-      <div class="card">
-        <h3>Content analysis</h3>
-        <div class="big">${Math.round(report.content_analysis.score)}<span class="sub">/100</span></div>
-        <div class="sub">weight ${(w.content * 100).toFixed(0)}%</div>
-        <div style="margin-top:6px">
+    ${hasReflection ? renderReflectionTrace(ca.reflection_trace) : ""}
+
+    ${crossRefPanel}
+
+    <div class="grid-2" data-reveal="sub-cards">
+      <div class="card card-sub">
+        <div class="card-sub-head">
+          <span class="section-meta">Content analysis</span>
+          <div class="card-sub-num">${Math.round(report.content_analysis.score)}<span class="card-sub-denom">/100</span></div>
+        </div>
+        <div class="card-sub-sub">weight ${(w.content * 100).toFixed(0)}% · ${escapeHtml(ca.summary || "").slice(0, 60)}${(ca.summary || "").length > 60 ? "…" : ""}</div>
+        <div style="margin-top:10px">
           ${bar("Factuality", report.content_analysis.factuality)}
           ${bar("Objectivity", report.content_analysis.objectivity)}
           ${bar("Transparency", report.content_analysis.transparency)}
           ${bar("Restraint", report.content_analysis.sensationalism)}
         </div>
       </div>
-      <div class="card">
-        <h3>Cross-reference</h3>
-        <div class="big">${Math.round(report.cross_reference.score)}<span class="sub">/100</span></div>
-        <div class="sub">
-          <strong>${report.cross_reference.n_sources}</strong> sources ·
-          <strong>${report.cross_reference.n_high_quality}</strong> high-quality ·
-          weight ${(w.cross_reference * 100).toFixed(0)}%
+      <div class="card card-sub">
+        <div class="card-sub-head">
+          <span class="section-meta">Domain prior</span>
+          <div class="card-sub-num">${Math.round(dom.score || 0)}<span class="card-sub-denom">/100</span></div>
         </div>
-        <div class="sub">Consensus · <strong>${escapeHtml(report.cross_reference.consensus)}</strong></div>
+        <div class="card-sub-sub">
+          <strong>${escapeHtml(dom.type || "unknown")}</strong> · weight ${(w.domain * 100).toFixed(0)}%
+        </div>
+        <div class="card-sub-sub" style="margin-top:8px">${escapeHtml(dom.rationale || "")}</div>
       </div>
     </div>
-
-    ${renderReflectionTrace(ca.reflection_trace)}
 
     ${
       hasPerClaim
         ? renderClaimVerifications(ca.claim_verifications, ca.coverage)
-        : `<div>
+        : `<div data-reveal="main-claims">
              <div class="section-title">
                Main claims
                <span class="section-meta">${(ca.main_claims || []).length} extracted</span>
@@ -461,27 +517,53 @@ function renderReport(report) {
            </div>`
     }
 
-    <div>
-      <div class="section-title">
-        Red flags
-        <span class="section-meta">${(ca.red_flags || []).length} flagged</span>
-      </div>
-      ${listOrNone(ca.red_flags, "flags", "No red flags identified.")}
-    </div>
+    ${
+      hasRedFlags
+        ? `<div class="red-flags-block" data-reveal="red-flags">
+             <div class="section-title red-flags-title">
+               <span class="alert-icon" aria-hidden="true">
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                   <path d="M12 9v4M12 17v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                   <path d="M10.3 3.86 2.07 18a2 2 0 0 0 1.73 3h16.4a2 2 0 0 0 1.73-3L13.7 3.86a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                 </svg>
+               </span>
+               Red flags
+               <span class="section-meta">${ca.red_flags.length} flagged</span>
+             </div>
+             <ul class="flags">${ca.red_flags.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
+           </div>`
+        : ""
+    }
 
     ${
       hasPerClaim
         ? ""
-        : `<div>
+        : `<div data-reveal="sources">
              <div class="section-title">
                Corroborating sources
-               <span class="section-meta">${(report.cross_reference.sources || []).length} retrieved</span>
+               <span class="section-meta">${(xref.sources || []).length} retrieved</span>
              </div>
-             ${renderSources(report.cross_reference.sources)}
+             ${renderSources(xref.sources)}
            </div>`
     }
   `;
 }
+
+// One-word verdict → presentation headline. Kept distinct from the
+// machine-readable verdict so the UI can phrase it naturally.
+function verdictHeadline(v) {
+  return {
+    "highly-reliable": "Highly reliable",
+    "generally-reliable": "Generally reliable",
+    mixed: "Mixed signals",
+    questionable: "Questionable",
+    unreliable: "Unreliable",
+  }[v] || v;
+}
+
+// Track API duration so we can skip the staged-reveal theater for slow
+// responses — adding 5s of animation on top of a 10s wait is sadism.
+const SLOW_API_MS = 6000;
 
 async function runAssessment() {
   const url = $("#url").value.trim();
@@ -515,6 +597,7 @@ async function runAssessment() {
   );
   $("#results").classList.add("hidden");
 
+  const reqStart = performance.now();
   try {
     const resp = await fetch(`/api/assess?mode=${encodeURIComponent(state.mode)}`, {
       method: "POST",
@@ -526,9 +609,20 @@ async function runAssessment() {
       throw new Error(err.detail || `HTTP ${resp.status}`);
     }
     const report = await resp.json();
-    $("#results").innerHTML = renderReport(report);
-    $("#results").classList.remove("hidden");
+    const apiDurationMs = performance.now() - reqStart;
+    const results = $("#results");
+    results.innerHTML = renderReport(report);
+    results.classList.remove("hidden");
     setStatus("");
+    // Staged-reveal: ring fills with gauge overshoot, sections stagger
+    // in, reflection theater plays. Skip the theater if the API was
+    // already slow — user has waited enough.
+    if (typeof window.revealReport === "function") {
+      window.revealReport(results, {
+        score: Math.round(report.overall_score),
+        skipTheater: apiDurationMs > SLOW_API_MS,
+      });
+    }
   } catch (e) {
     setStatus(`Error: ${e.message}`, "err");
   } finally {

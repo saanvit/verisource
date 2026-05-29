@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Source Reliability Assessor</title>
+    <title>VeriSource — Reliability for the open web</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -11,6 +11,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/styles.css" />
+    <script defer src="/reveal.js"></script>
   </head>
   <body>
     <div class="aurora" aria-hidden="true"></div>
@@ -19,14 +20,28 @@
       <div class="topbar-inner">
         <div class="brand">
           <span class="logo" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2 L21 7 V14 C21 18.5 17 21.5 12 22 C7 21.5 3 18.5 3 14 V7 Z" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-              <path d="M8 12 L11 15 L16 9.5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <defs>
+                <linearGradient id="vsLogoGradient" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#7C5CFF"/>
+                  <stop offset="50%" stop-color="#5B8DEF"/>
+                  <stop offset="100%" stop-color="#22D3EE"/>
+                </linearGradient>
+              </defs>
+              <!-- Three perimeter dots converging on a center node -->
+              <line x1="12" y1="3" x2="12" y2="12" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="4" y1="20" x2="12" y2="12" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round"/>
+              <line x1="20" y1="20" x2="12" y2="12" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round"/>
+              <circle cx="12" cy="3" r="1.8" fill="rgba(255,255,255,0.9)"/>
+              <circle cx="4" cy="20" r="1.8" fill="rgba(255,255,255,0.9)"/>
+              <circle cx="20" cy="20" r="1.8" fill="rgba(255,255,255,0.9)"/>
+              <circle class="glyph-center" cx="12" cy="12" r="3.4"/>
             </svg>
           </span>
+          <span class="brand-divider" aria-hidden="true"></span>
           <div class="brand-text">
-            <h1>Source Reliability Assessor</h1>
-            <p class="tagline">Domain priors · LLM analysis · Independent corroboration</p>
+            <h1><span class="veri">Veri</span><span class="source">Source</span></h1>
+            <p class="tagline">Evidence · Triangulation · Reliability</p>
           </div>
         </div>
         <div id="health" class="health" aria-live="polite"></div>
