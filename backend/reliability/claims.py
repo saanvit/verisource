@@ -34,7 +34,7 @@ from backend.reliability.content_extractor import ExtractedContent
 from backend.reliability.domain_reputation import lookup as lookup_domain
 from backend.search.web_search import SearchHit, web_search
 
-MAX_CLAIMS = 6
+MAX_CLAIMS = 8
 MAX_INPUT_CHARS = 12_000
 EVIDENCE_PER_CLAIM = 4
 
@@ -49,10 +49,43 @@ def _nli_backend() -> str:
 DECOMPOSE_SYSTEM_PROMPT = """You are a fact-checking assistant.
 Decompose the input article into a small set of ATOMIC, INDEPENDENTLY
 VERIFIABLE factual claims. Each claim must:
-- be a single, self-contained factual assertion (not a question or opinion),
+- contain EXACTLY ONE factual assertion. A retrieval search should be able
+  to verify each claim with a single targeted query.
+- be self-contained (not a question or opinion),
 - name the specific actor, action, object, and any quantities/dates verbatim
   where present,
 - be checkable against external sources without referring back to the article.
+
+CRITICAL — atomicity over faithfulness:
+
+EVEN IF the article presents multiple facts in a single sentence connected
+by "and", "where", "while", "who also", commas, or any similar construction,
+you MUST split them into separate claims when each fact could be
+independently true or false. Do NOT preserve the article's sentence
+structure when doing so would combine independent facts. Faithfulness to
+the article's phrasing is NOT a goal — atomicity is.
+
+Worked examples of compound-splitting:
+
+  Input: "Liliana Garces serves as VP at the Alliance, where Jackie Pedota
+          also serves as a fellow."
+  Output (TWO claims, not one):
+    - "Liliana Garces serves as vice president at the Alliance for
+       Higher Education."
+    - "Jackie Pedota serves as a fellow at the Alliance for Higher
+       Education."
+
+  Input: "The bill passed the Senate 52-48 and was signed by the President
+          on March 3."
+  Output (TWO claims):
+    - "The bill passed the Senate by a 52-48 vote."
+    - "The President signed the bill on March 3."
+
+Counter-example — do NOT over-split single events:
+
+  Input: "Trump met Putin in Helsinki in 2018."
+  Output (ONE claim — single event, can't be partially true):
+    - "Trump met Putin in Helsinki in 2018."
 
 DO NOT include rhetorical statements, value judgments, summary statements,
 or speculation framed with "may", "could", "is expected to" — those are not
@@ -233,11 +266,18 @@ async def _label_hits(claim: str, hits: list[SearchHit]) -> list[str]:
 
 
 def _claim_status(support_ratio: float, contradict_ratio: float, n_evidence: int) -> str:
+    # Support threshold (0.35) is calibrated below the previous 0.5 to
+    # account for the fine-tuned NLI labeler's empirical conservatism on
+    # real-news evidence: ~30% of obviously-supporting hits get labeled
+    # "unclear" because of hedging language, partial overlap, or framing
+    # differences. Without this calibration, supported facts kept landing
+    # in "mixed". See README A/B section + the SB17 demo trace for the
+    # specific cases that motivated this.
     if n_evidence == 0:
         return "unverified"
     if contradict_ratio >= 0.4:
         return "contradicted"
-    if support_ratio >= 0.5 and contradict_ratio < 0.2:
+    if support_ratio >= 0.35 and contradict_ratio < 0.2:
         return "supported"
     if support_ratio > 0 or contradict_ratio > 0:
         return "mixed"
@@ -250,15 +290,29 @@ def _claim_score(
     """Map per-claim retrieval outcomes to a 0-100 reliability score.
 
     Anchored at 50 (no info), pushed up by reputation-weighted support and
-    down by reputation-weighted contradiction, with a small bonus for having
-    multiple high-quality independent sources.
+    down by reputation-weighted contradiction, with bonuses for source
+    quality and for the "system found relevant high-rep coverage and
+    nothing contradicts" pattern (which our conservative NLI labeler tends
+    to mark as "unclear" even when the evidence is clearly on-topic).
     """
     if n_evidence == 0:
         return 50.0
     base = 50.0
     base += 45.0 * support_ratio
-    base -= 60.0 * contradict_ratio
-    base += min(10.0, n_high_quality * 3.0)
+    # Slightly softer than the original -60 — a single mislabeled
+    # "contradicts" from a real news evidence pair shouldn't single-handedly
+    # crater an otherwise well-supported claim.
+    base -= 55.0 * contradict_ratio
+    # Quality bonus: scales with high-quality source count, larger ceiling
+    # than the old +10 so source diversity gets more credit.
+    base += min(15.0, n_high_quality * 4.0)
+    # On-topic coverage bonus: when retrieval pulled 2+ high-quality sources
+    # and none of them actively contradict, that's real corroborative
+    # signal even if the NLI labeler couldn't commit to "supports". This
+    # specifically addresses the SB17/Garces failure mode where all the
+    # evidence was clearly on-topic but labeled "unclear".
+    if n_high_quality >= 2 and contradict_ratio < 0.2:
+        base += 5.0
     return round(max(0.0, min(100.0, base)), 1)
 
 

@@ -38,6 +38,37 @@ def test_claim_status_thresholds():
     assert claims_mod._claim_status(0.3, 0.3, 3) == "mixed"
 
 
+def test_claim_status_supports_at_calibrated_threshold():
+    # The support threshold (0.35) is intentionally below the intuitive 0.5
+    # to account for our fine-tuned NLI's empirical conservatism on real
+    # news evidence. 40% reputation-weighted support with no contradictions
+    # is enough to commit to "supported".
+    assert claims_mod._claim_status(0.4, 0.0, 4) == "supported"
+    # Just under the threshold stays "mixed".
+    assert claims_mod._claim_status(0.34, 0.0, 4) == "mixed"
+
+
+def test_claim_score_on_topic_bonus_when_no_contradicts():
+    # 2+ high-quality sources and no contradictions → +5 bonus, even when
+    # NLI couldn't commit to "supports" for any of them. This addresses
+    # the SB17/Garces failure mode: clearly-on-topic high-rep evidence
+    # was being treated as zero-signal.
+    bare = claims_mod._claim_score(0.0, 0.0, 4, 0)  # no HQ → no bonus
+    bonus = claims_mod._claim_score(0.0, 0.0, 4, 3)  # 3 HQ → bonus
+    assert bonus > bare
+    # Specifically: HQ quality bonus (min(15, 12)=12) + on-topic bonus (5).
+    assert bonus == 50.0 + 12.0 + 5.0
+
+
+def test_claim_score_no_on_topic_bonus_when_contradicted():
+    # If contradictions are significant, the "on-topic" bonus should not
+    # apply — we don't want to inflate scores when sources actively disagree.
+    score = claims_mod._claim_score(0.0, 0.3, 4, 3)
+    # base 50 + 0 support − 55*0.3 contradict + min(15, 12)=12 HQ + 0 on-topic
+    # = 50 − 16.5 + 12 = 45.5
+    assert score == 45.5
+
+
 def _v(claim: str, score: float, status: str, n_evidence: int = 2, high: int = 1) -> ClaimVerification:
     return ClaimVerification(
         claim=claim,
