@@ -152,6 +152,113 @@ function renderEvidence(evidence) {
     </div>`;
 }
 
+const ACTION_LABEL = {
+  relabel_hit: "Relabel hit",
+  research_claim: "Re-search claim",
+  split_claim: "Split into atoms",
+  noop: "No-op",
+};
+
+const ACTION_TONE = {
+  relabel_hit: "yellow",
+  research_claim: "outline",
+  split_claim: "lime",
+  noop: "outline",
+};
+
+function renderReflectionAction(a) {
+  const tone = ACTION_TONE[a.type] || "outline";
+  const label = ACTION_LABEL[a.type] || a.type;
+  let detail = "";
+  if (a.type === "relabel_hit") {
+    detail = `→ <strong>${escapeHtml(a.new_label || "?")}</strong>
+              <span class="action-target">on ${escapeHtml(a.hit_url || "")}</span>`;
+  } else if (a.type === "research_claim") {
+    detail = `→ new query <em>${escapeHtml(a.alternative_query || "")}</em>`;
+  } else if (a.type === "split_claim" && Array.isArray(a.subclaims)) {
+    detail = `→ split into:
+              <ul class="subclaims">
+                ${a.subclaims.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}
+              </ul>`;
+  }
+  return `
+    <li class="reflection-action">
+      <div class="action-head">
+        <span class="badge ${tone}">${escapeHtml(label)}</span>
+        ${a.claim ? `<span class="action-claim">${escapeHtml(a.claim)}</span>` : ""}
+      </div>
+      <div class="action-detail">${detail}</div>
+      ${a.reason ? `<div class="action-reason">${escapeHtml(a.reason)}</div>` : ""}
+    </li>`;
+}
+
+function renderReflectionRound(r) {
+  const actionCount = (r.actions || []).length;
+  const deltaCount = Object.keys(r.score_deltas || {}).length;
+  const summary = actionCount === 0
+    ? "No fixes needed — converged."
+    : `${actionCount} action${actionCount === 1 ? "" : "s"} applied · ${deltaCount} claim${deltaCount === 1 ? "" : "s"} changed`;
+
+  const issuesHtml = (r.issues || []).length
+    ? `<div class="reflection-issues">
+         ${r.issues.map((i) => `<span class="badge outline">${escapeHtml(i)}</span>`).join("")}
+       </div>`
+    : "";
+
+  const actionsHtml = (r.actions || []).length
+    ? `<ul class="action-list">${r.actions.map(renderReflectionAction).join("")}</ul>`
+    : `<p class="status">No actions this round.</p>`;
+
+  const deltasHtml = deltaCount
+    ? `<div class="reflection-deltas">
+         ${Object.entries(r.score_deltas)
+           .map(([claim, d]) => {
+             const sign = d > 0 ? "+" : "";
+             const tone = d > 0 ? "green" : d < 0 ? "red" : "outline";
+             return `<div class="delta">
+                       <span class="badge ${tone}">${sign}${d}</span>
+                       <span class="delta-claim">${escapeHtml(claim)}</span>
+                     </div>`;
+           })
+           .join("")}
+       </div>`
+    : "";
+
+  return `
+    <details class="reflection-round" ${r.round_index === 0 ? "open" : ""}>
+      <summary>
+        <span class="reflection-round-title">Round ${r.round_index + 1}</span>
+        <span class="reflection-round-summary">${escapeHtml(summary)}</span>
+      </summary>
+      <div class="reflection-round-body">
+        <p class="reflection-critique">${escapeHtml(r.critique || "")}</p>
+        ${issuesHtml}
+        ${actionsHtml}
+        ${deltasHtml}
+      </div>
+    </details>`;
+}
+
+function renderReflectionTrace(trace) {
+  if (!trace?.length) return "";
+  const totalActions = trace.reduce(
+    (n, r) => n + (r.actions || []).length, 0
+  );
+  return `
+    <div class="reflection-trace">
+      <div class="section-title">
+        Agent reasoning trace
+        <span class="section-meta">${trace.length} round${trace.length === 1 ? "" : "s"} · ${totalActions} action${totalActions === 1 ? "" : "s"}</span>
+      </div>
+      <p class="reflection-intro">
+        Claude audited the initial per-claim verifications and proposed targeted
+        fixes. Each round shows the critique, the structured actions executed,
+        and the resulting score changes.
+      </p>
+      ${trace.map(renderReflectionRound).join("")}
+    </div>`;
+}
+
 function renderClaimVerifications(verifications, coverage) {
   if (!verifications?.length) return "";
   const meta =
@@ -334,6 +441,8 @@ function renderReport(report) {
       </div>
     </div>
 
+    ${renderReflectionTrace(ca.reflection_trace)}
+
     ${
       hasPerClaim
         ? renderClaimVerifications(ca.claim_verifications, ca.coverage)
@@ -398,7 +507,9 @@ async function runAssessment() {
   const btn = $("#run");
   btn.disabled = true;
   setStatus(
-    state.mode === "per-claim"
+    state.mode === "per-claim-reflective"
+      ? "Decomposing, verifying, then running Claude critique + auto-corrections…"
+      : state.mode === "per-claim"
       ? "Decomposing claims, retrieving evidence, scoring each independently…"
       : "Fetching, analyzing with the LLM, and cross-referencing…"
   );

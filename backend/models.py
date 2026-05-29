@@ -64,6 +64,44 @@ class ClaimVerification(BaseModel):
     evidence: list[ClaimEvidence]
 
 
+class ReflectionAction(BaseModel):
+    """One structured fix the reflection agent decided to execute.
+
+    All fields except ``type`` and ``reason`` are optional; only the
+    fields relevant to the action's ``type`` are populated. Keeping the
+    schema flat (rather than a discriminated union) makes the prompt
+    template simpler and the JSON easier for Claude to emit correctly.
+    """
+
+    type: Literal["research_claim", "relabel_hit", "split_claim", "noop"]
+    reason: str
+    claim: str | None = None
+    # research_claim
+    alternative_query: str | None = None
+    # relabel_hit
+    hit_url: str | None = None
+    new_label: Literal["supports", "contradicts", "unclear"] | None = None
+    # split_claim
+    subclaims: list[str] | None = None
+
+
+class ReflectionRound(BaseModel):
+    """Trace of one round of the self-reflective verification loop.
+
+    Surfaced in the API response and the frontend so the demo can show
+    the agent's intermediate reasoning + the concrete fixes it applied.
+    """
+
+    round_index: int
+    critique: str
+    issues: list[str]
+    actions: list[ReflectionAction]
+    score_deltas: dict[str, float] = Field(
+        default_factory=dict,
+        description="Claim text → score change applied this round.",
+    )
+
+
 class ContentAnalysis(BaseModel):
     """LLM-driven content reliability signals."""
 
@@ -88,6 +126,9 @@ class ContentAnalysis(BaseModel):
             "Populated only by the per-claim pipeline."
         ),
     )
+    # Populated only by the per-claim-reflective pipeline. Each entry is
+    # one round of the agent's critique + the structured fixes it applied.
+    reflection_trace: list[ReflectionRound] | None = None
 
 
 class CorroboratingSource(BaseModel):

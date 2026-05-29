@@ -19,7 +19,10 @@ from backend.reliability.content_extractor import (
 )
 from backend.reliability.cross_reference import cross_reference
 from backend.reliability.domain_reputation import lookup as lookup_domain
-from backend.reliability.pipeline_per_claim import assess_per_claim
+from backend.reliability.pipeline_per_claim import (
+    assess_per_claim,
+    assess_per_claim_reflective,
+)
 from backend.reliability.scorer import aggregate
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -51,7 +54,7 @@ async def health() -> dict[str, object]:
         "search_configured": settings.has_search,
         "model": settings.mistral_model if settings.has_llm else None,
         "default_mode": "per-claim",
-        "modes": ["default", "per-claim"],
+        "modes": ["default", "per-claim", "per-claim-reflective"],
     }
 
 
@@ -60,11 +63,14 @@ async def assess(
     req: AssessRequest,
     mode: str = Query(
         default="per-claim",
-        pattern="^(default|per-claim)$",
+        pattern="^(default|per-claim|per-claim-reflective)$",
         description=(
             "Which pipeline to run. 'per-claim' (default) decomposes the article into "
             "atomic claims and verifies each independently; 'default' runs the legacy "
-            "single-shot analyzer + one cross-reference search."
+            "single-shot analyzer + one cross-reference search; 'per-claim-reflective' "
+            "wraps the per-claim pipeline in a Claude-driven self-critique loop that "
+            "audits the initial verifications and applies targeted fixes (relabel "
+            "mislabeled hits, re-search weak queries, split compound claims)."
         ),
     ),
 ) -> ReliabilityReport:
@@ -99,6 +105,8 @@ async def assess(
     else:
         content = extract_from_text(req.text or "")
 
+    if mode == "per-claim-reflective":
+        return await assess_per_claim_reflective(content, user_claim=req.claim)
     if mode == "per-claim":
         return await assess_per_claim(content, user_claim=req.claim)
 

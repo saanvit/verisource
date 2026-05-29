@@ -310,7 +310,64 @@ makes the tradeoff measurable.
 
 **Wiring into the API.** `POST /api/assess` defaults to the per-claim
 pipeline; pass `?mode=default` to fall back to the legacy single-shot
-pipeline. The frontend exposes a Per-claim / Default toggle.
+pipeline, or `?mode=per-claim-reflective` to run the self-reflective
+variant described below. The frontend exposes all three as a Pipeline
+toggle.
+
+## Self-reflective verification (per-claim-reflective mode)
+
+The per-claim pipeline labels and aggregates in a single shot — every
+choice (which claim to extract, which evidence to retrieve, how to
+label each hit) commits in the first pass. Live debugging surfaced
+three failure modes that single-shot can't catch:
+
+1. **Mislabeled hits.** NLI labelers (both Mistral and the fine-tuned
+   DeBERTa) sometimes mark obviously-supporting evidence as `unclear`
+   due to hedging language, domain mismatch, or partial overlap. The
+   canonical case: an article claims "SB 17 bars DEI activities", four
+   Tavily hits literally restate that, all four labeled `unclear` →
+   claim status `unverified`.
+2. **Weak retrieval queries.** Generic claim phrasings return zero
+   evidence or only tangentially-related hits.
+3. **Compound claims that slipped past decomposition.** A single
+   sentence packing two assertions gets one `unverified` verdict
+   instead of two separable ones.
+
+`per-claim-reflective` wraps the per-claim pipeline in a **Claude
+critique loop** (Anthropic Claude Sonnet 4.6 via OpenRouter by default)
+that audits the initial verifications and emits structured fixes the
+system executes:
+
+```
+... (steps 1-3 of per-claim) ...
+  └─ run_reflection_loop (≤2 rounds)
+       └─ Claude critique  → STRICT JSON {issues, actions:[...]}
+       └─ execute actions:
+            ├─ relabel_hit(claim, hit_url, new_label)   no LLM cost
+            ├─ research_claim(claim, alternative_query) +1 Tavily + 1 NLI
+            └─ split_claim(claim, subclaims)            +N Tavily + N NLI
+       └─ diff scores → ReflectionRound appended to trace
+       └─ converge when actions=[] or no |delta|≥5 or critique fails
+  └─ aggregate (unchanged) → ReliabilityReport with reflection_trace
+```
+
+The full trace is attached to `ReliabilityReport.content_analysis.reflection_trace`
+as a typed `list[ReflectionRound]` so the frontend renders the agent's
+critique, issue tags, structured actions, and resulting score deltas
+inline above the per-claim breakdown.
+
+**Cost (per article):** 1 extra Claude critique call per round + ≤4
+action executions per round, capped at 2 rounds. Worst case ~12 extra
+calls per article; typical ~3-5. With OpenRouter promo credits the
+incremental cost is negligible.
+
+**When to use it:** demo / writeup / borderline-mixed articles where a
+single-shot verdict is unsatisfying. The standard `per-claim` mode is
+still the default API mode for speed.
+
+**Tests.** Loop logic is covered by `tests/test_reflection.py` with a
+monkeypatched critique LLM — all action types, convergence paths, and
+the noop-on-failure path are exercised offline.
 
 ## Score calibration
 

@@ -33,9 +33,12 @@ from __future__ import annotations
 
 from backend.config import settings
 from backend.models import (
+    ClaimVerification,
     ContentAnalysis,
     CorroboratingSource,
     CrossReferenceResult,
+    DomainReputation,
+    ReflectionRound,
     ReliabilityReport,
 )
 from backend.reliability.analyzer import analyze_content
@@ -46,6 +49,7 @@ from backend.reliability.claims import (
 )
 from backend.reliability.content_extractor import ExtractedContent
 from backend.reliability.domain_reputation import lookup as lookup_domain
+from backend.reliability.reflection import run_reflection_loop
 from backend.reliability.scorer import aggregate
 
 
@@ -168,15 +172,15 @@ def _aggregate_claims(
     return factuality, xref, coverage, extra_flags
 
 
-async def assess_per_claim(
+async def _run_through_verify(
     content: ExtractedContent,
-    *,
-    user_claim: str | None = None,
-) -> ReliabilityReport:
-    """Run the per-claim pipeline and return a ReliabilityReport.
+    user_claim: str | None,
+) -> tuple[ContentAnalysis, list[str], list[ClaimVerification], str | None, DomainReputation]:
+    """Steps 1-3 of the per-claim pipeline, factored out so both the
+    standard and the reflective variants can share the orchestration.
 
-    Signature is content-first (rather than request-first) so it can be
-    composed with both the API route and the eval runner.
+    Returns ``(analysis, decomposed, verifications, exclude_domain,
+    domain_reputation)``.
     """
     domain = lookup_domain(content.url)
 
@@ -197,7 +201,25 @@ async def assess_per_claim(
     exclude = domain_of(content.url)
     verifications = await verify_all_claims(decomposed, exclude_domain=exclude)
 
-    # Step 4: roll up per-claim signals to article-level factuality + xref.
+    return analysis, decomposed, verifications, exclude, domain
+
+
+def _finalize_report(
+    *,
+    content: ExtractedContent,
+    domain: DomainReputation,
+    analysis: ContentAnalysis,
+    decomposed: list[str],
+    verifications: list[ClaimVerification],
+    reflection_trace: list[ReflectionRound] | None = None,
+) -> ReliabilityReport:
+    """Steps 4+ of the per-claim pipeline (aggregation + scorer).
+
+    Extracted alongside ``_run_through_verify`` so the standard and
+    reflective variants share the post-verification aggregation
+    unchanged. Pass ``reflection_trace`` to attach the agent's audit
+    trail to ``ContentAnalysis`` for UI rendering.
+    """
     factuality, xref, coverage, extra_flags = _aggregate_claims(verifications)
 
     # Recompute the content score with the new factuality but reusing the
@@ -211,18 +233,92 @@ async def assess_per_claim(
     )
     merged_flags = list(dict.fromkeys(list(analysis.red_flags) + extra_flags))
 
-    enriched = analysis.model_copy(
-        update={
-            "score": new_content_score,
-            "factuality": factuality,
-            "main_claims": decomposed or analysis.main_claims,
-            "red_flags": merged_flags,
-            "claim_verifications": verifications,
-            "coverage": round(coverage, 3),
-        }
+    updates: dict = {
+        "score": new_content_score,
+        "factuality": factuality,
+        "main_claims": decomposed or analysis.main_claims,
+        "red_flags": merged_flags,
+        "claim_verifications": verifications,
+        "coverage": round(coverage, 3),
+    }
+    if reflection_trace is not None:
+        updates["reflection_trace"] = reflection_trace
+
+    enriched = analysis.model_copy(update=updates)
+    return aggregate(domain, enriched, xref, has_text=bool(content.text.strip()))
+
+
+async def assess_per_claim(
+    content: ExtractedContent,
+    *,
+    user_claim: str | None = None,
+) -> ReliabilityReport:
+    """Run the per-claim pipeline and return a ReliabilityReport.
+
+    Signature is content-first (rather than request-first) so it can be
+    composed with both the API route and the eval runner.
+    """
+    analysis, decomposed, verifications, _exclude, domain = await _run_through_verify(
+        content, user_claim
+    )
+    return _finalize_report(
+        content=content,
+        domain=domain,
+        analysis=analysis,
+        decomposed=decomposed,
+        verifications=verifications,
     )
 
-    return aggregate(domain, enriched, xref, has_text=bool(content.text.strip()))
+
+async def assess_per_claim_reflective(
+    content: ExtractedContent,
+    *,
+    user_claim: str | None = None,
+    max_rounds: int = 2,
+) -> ReliabilityReport:
+    """Per-claim pipeline + a self-reflective verification loop.
+
+    Runs the standard pipeline through Step 3 (claim verification), then
+    hands the verifications to a Claude-driven reflection agent that
+    audits its own output, proposes structured fixes (relabel mislabeled
+    hits, re-search weak queries, split compound claims), and executes
+    them. The full critique trace is attached to the returned report's
+    ``content_analysis.reflection_trace`` field.
+
+    Cost: 1 extra Claude critique call + up to ~MAX_CLAIMS re-verification
+    calls per round, capped at ``max_rounds`` rounds (default 2). With
+    OpenRouter promo credits this is negligible per-article.
+    """
+    analysis, decomposed, verifications, exclude, domain = await _run_through_verify(
+        content, user_claim
+    )
+
+    verifications, trace = await run_reflection_loop(
+        verifications,
+        content=content,
+        exclude_domain=exclude,
+        max_rounds=max_rounds,
+    )
+
+    # If new claims appeared via split_claim, surface them in main_claims so
+    # the UI's claim list and the decomposed list stay consistent.
+    seen = set()
+    merged_claims: list[str] = []
+    for c in [v.claim for v in verifications] + list(decomposed):
+        key = c.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged_claims.append(c)
+
+    return _finalize_report(
+        content=content,
+        domain=domain,
+        analysis=analysis,
+        decomposed=merged_claims,
+        verifications=verifications,
+        reflection_trace=trace,
+    )
 
 
 def has_llm() -> bool:

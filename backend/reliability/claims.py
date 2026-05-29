@@ -359,13 +359,16 @@ def _claim_score(
     return round(max(0.0, min(100.0, base)), 1)
 
 
-async def verify_claim(claim: str, *, exclude_domain: str | None = None) -> ClaimVerification:
-    """Retrieve evidence for a claim and label it.
+def _build_verification(
+    claim: str, hits: list[SearchHit], labels: list[str]
+) -> ClaimVerification:
+    """Assemble a ClaimVerification from raw search hits + stance labels.
 
-    No LLM / no search keys → returns an ``unverified`` result with empty
-    evidence so the caller can still aggregate.
+    Extracted from ``verify_claim`` so the reflection agent's
+    ``research_claim`` action can rebuild verifications with a
+    different query/retrieval without duplicating the reputation
+    weighting + score/status formula.
     """
-    hits = await web_search(claim, k=EVIDENCE_PER_CLAIM, exclude_domain=exclude_domain)
     if not hits:
         return ClaimVerification(
             claim=claim,
@@ -377,8 +380,6 @@ async def verify_claim(claim: str, *, exclude_domain: str | None = None) -> Clai
             n_high_quality=0,
             evidence=[],
         )
-
-    labels = await _label_hits(claim, hits)
 
     evidence: list[ClaimEvidence] = []
     weighted_support = 0.0
@@ -421,6 +422,56 @@ async def verify_claim(claim: str, *, exclude_domain: str | None = None) -> Clai
         n_high_quality=n_high_quality,
         evidence=evidence,
     )
+
+
+def recompute_verification_after_relabel(v: ClaimVerification) -> ClaimVerification:
+    """Recompute support_ratio/contradict_ratio/score/status from current
+    evidence labels — used by the reflection agent's ``relabel_hit``
+    executor after it flips an evidence's ``agreement`` field.
+    """
+    weighted_support = 0.0
+    weighted_contradict = 0.0
+    weight_total = 0.0
+    n_high_quality = 0
+    for e in v.evidence:
+        if e.domain_score >= 75:
+            n_high_quality += 1
+        weight = max(e.domain_score, 10.0)
+        weight_total += weight
+        if e.agreement == "supports":
+            weighted_support += weight
+        elif e.agreement == "contradicts":
+            weighted_contradict += weight
+    support_ratio = weighted_support / weight_total if weight_total else 0.0
+    contradict_ratio = weighted_contradict / weight_total if weight_total else 0.0
+    return v.model_copy(
+        update={
+            "support_ratio": round(support_ratio, 3),
+            "contradict_ratio": round(contradict_ratio, 3),
+            "n_evidence": len(v.evidence),
+            "n_high_quality": n_high_quality,
+            "score": _claim_score(
+                support_ratio, contradict_ratio, len(v.evidence), n_high_quality
+            ),
+            "status": _claim_status(
+                support_ratio, contradict_ratio, len(v.evidence)
+            ),
+        }
+    )
+
+
+async def verify_claim(claim: str, *, exclude_domain: str | None = None) -> ClaimVerification:
+    """Retrieve evidence for a claim and label it.
+
+    No LLM / no search keys → returns an ``unverified`` result with empty
+    evidence so the caller can still aggregate.
+    """
+    hits = await web_search(claim, k=EVIDENCE_PER_CLAIM, exclude_domain=exclude_domain)
+    if not hits:
+        return _build_verification(claim, [], [])
+
+    labels = await _label_hits(claim, hits)
+    return _build_verification(claim, list(hits), list(labels))
 
 
 async def verify_all_claims(
