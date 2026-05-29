@@ -53,7 +53,7 @@ def load_settings() -> Settings:
         mistral_api_key=os.getenv("MISTRAL_API_KEY") or None,
         mistral_model=os.getenv("MISTRAL_MODEL", "mistral-large-latest"),
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY") or None,
-        openrouter_model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
+        openrouter_model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.6"),
         tavily_api_key=os.getenv("TAVILY_API_KEY") or None,
         cross_reference_k=int(os.getenv("CROSS_REFERENCE_K", "5")),
         host=os.getenv("HOST", "0.0.0.0"),
