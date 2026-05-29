@@ -47,74 +47,102 @@ def _nli_backend() -> str:
 
 
 DECOMPOSE_SYSTEM_PROMPT = """You are a fact-checking assistant.
-Decompose the input article into a small set of ATOMIC, INDEPENDENTLY
-VERIFIABLE factual claims THAT THE ARTICLE'S ARGUMENT ACTUALLY DEPENDS ON.
+Extract a small set of claims from the article that the system will then
+verify against retrieved web evidence. Every extracted claim must satisfy
+THREE constraints, in order of strictness:
 
-Your goal is NOT to enumerate every fact in the article. Your goal is to
-identify the LOAD-BEARING claims — the ones whose truth or falsity would
-meaningfully change a reader's assessment of whether the article is
-reliable. These are the claims most worth spending verification budget on.
+============================================================
+RULE 1 (MANDATORY) — ATOMIC
+============================================================
+Each claim must contain EXACTLY ONE factual assertion. A single targeted
+web search should be able to verify it. EVEN IF the article presents
+multiple facts in one sentence connected by "and", "where", "while",
+"who also", commas, or similar constructions, you MUST split them.
+Atomicity beats mirroring the article's sentence structure.
 
-Each claim must:
-- contain EXACTLY ONE factual assertion (a single retrieval query should
-  be able to verify it),
-- be self-contained (not a question or opinion),
-- name the specific actor, action, object, and any quantities/dates
-  verbatim where present,
-- be checkable against external sources without referring back to the
-  article.
-
-EXTRACT (high priority):
-
-* Specific impact claims — "X policy caused Y measurable outcome"
-* Statistical/quantitative assertions — numbers of people, percentages,
-  dollar amounts, dates of specific events
-* Attributed quotes whose accuracy or context can be verified
-* Predictions or causal claims that the article uses to support its thesis
-* Statements about what specific organizations, courts, or officials did
-* Bold claims that, if false, would meaningfully undermine the article
-
-SKIP (low priority — DO NOT include unless the article's argument depends on them):
-
-* Background definitions of what a law/policy/term means
-* Bios of authors or quoted individuals (where they work, their titles)
-* Generic dates of well-known events (when something passed/took effect)
-* Statements of the article's own structure ("this piece argues...", "we'll
-  explore...")
-* Generic context-setting facts that any reader would already accept
-
-Worked examples:
-
-  Input article: "In 2023, Texas passed SB 17, which took effect January 1,
-  2024. The law bans DEI offices at public universities. Dr. Garces, VP at
-  the Alliance for Higher Education, told us that the law has caused
-  measurable harm: enrollment of underrepresented minorities at UT-Austin
-  dropped 14% in the first year, and over 60 staff were laid off, mostly
-  women of color."
-
-  WRONG (extracts background facts, misses the actual argument):
-    - "Texas passed SB 17 in 2023"
-    - "SB 17 took effect January 1, 2024"
-    - "SB 17 bans DEI offices"
-    - "Dr. Garces is VP at Alliance for Higher Education"
-
-  RIGHT (focuses on argument-bearing claims):
-    - "Enrollment of underrepresented minorities at UT-Austin dropped 14%
-       in the first year after SB 17 took effect."
-    - "Over 60 staff were laid off at Texas public universities under
-       SB 17."
-    - "The majority of staff laid off under SB 17 were women of color."
-
-Compound claims — split aggressively:
-
-EVEN IF the article presents multiple facts in a single sentence connected
-by "and", "where", "while", "who also", commas, or similar constructions,
-SPLIT them into separate claims when each could be independently true or
-false. Atomicity matters more than mirroring the article's sentence
-structure.
+  WRONG: "SB 17 took effect in 2024 and bars DEI activities"
+  RIGHT: two separate claims:
+    - "Texas SB 17 took effect on January 1, 2024."
+    - "Texas SB 17 bars public universities from funding DEI activities."
 
 But do NOT over-split single events: "Trump met Putin in Helsinki in 2018"
 is ONE claim — it can't be partially true.
+
+============================================================
+RULE 2 (MANDATORY) — VERIFIABLE BY PUBLIC SOURCES
+============================================================
+Only extract claims that could PLAUSIBLY be confirmed or denied by public
+web evidence. If a claim refers to something that has no publishable
+trace, SKIP IT — the system will only mark it "unverified".
+
+SKIP these unverifiable claim types:
+- Findings or methodology of an unpublished, forthcoming, or private
+  study (e.g. "the forthcoming study by X is based on 100 interviews")
+- Internal funding details of unpublished research
+- Private conversations, internal emails, off-the-record quotes
+- Subjective experiential claims that only the author can attest to
+  ("the faculty I spoke to felt anxious")
+- Generic context-setting facts that any reader would already accept
+  (definitions of what a law does, when it took effect — these are
+  background, not argument)
+- Bios of authors or quoted individuals — these are not the article's
+  argument
+
+If the article's most "load-bearing" claim happens to be unverifiable
+(e.g. it references an unpublished study's findings), skip it and pick
+the next-best VERIFIABLE claim instead. Better to verify 3 checkable
+claims well than to mark 5 unverifiable ones "unverified".
+
+============================================================
+RULE 3 (PRIORITY) — ARGUMENT-BEARING
+============================================================
+Among claims that pass Rules 1 and 2, prioritize the ones whose truth
+or falsity would meaningfully change a reader's assessment of the
+article. Bias toward:
+- Specific publicly-reported impact claims ("X institution laid off
+  Y staff")
+- Quantitative/statistical assertions that appear in public records
+- Statements about what specific officials, courts, or organizations
+  publicly did or said
+- Attributed quotes from public press conferences or filings
+- Causal claims about real-world consequences that can be checked
+  against news coverage
+
+Compared with these, deprioritize generic definitions or background.
+
+============================================================
+WORKED EXAMPLE
+============================================================
+
+  Input article: "In 2023, Texas passed SB 17, which took effect January 1,
+  2024. The law bans DEI offices at public universities. Dr. Garces, VP at
+  the Alliance for Higher Education, told us in our forthcoming study that
+  the law has caused measurable harm. Our research, based on 100 interviews
+  funded by the Alfred P. Sloan Foundation, found enrollment of
+  underrepresented minorities at UT-Austin dropped 14% in the first year.
+  UT-Austin also laid off over 60 staff in April 2024, mostly from its
+  DEI office."
+
+  Bad extraction (violates Rule 2 — references unpublished study):
+    - "The forthcoming study is based on 100 interviews"  ← unverifiable
+    - "Sloan Foundation funded the study"  ← unverifiable until published
+    - "Enrollment of minorities dropped 14% per the forthcoming study"  ← unverifiable
+
+  Bad extraction (violates Rule 3 — background facts):
+    - "Texas passed SB 17 in 2023"  ← background, not argument
+    - "Garces is VP at Alliance for Higher Education"  ← bio, not argument
+
+  Good extraction (atomic + verifiable + argument-bearing):
+    - "UT-Austin laid off over 60 staff in April 2024."
+    - "The UT-Austin layoffs were primarily from its DEI office."
+    - "UT-Austin enrollment of underrepresented minorities dropped 14%
+       in the first year after SB 17 took effect."  ← only if the article
+       also cites a public source for this stat, NOT just the forthcoming
+       study
+
+============================================================
+GENERAL RULES
+============================================================
 
 DO NOT include rhetorical statements, value judgments, opinion framed as
 fact, or speculation marked with "may", "could", "is expected to".
@@ -127,10 +155,10 @@ Return STRICT JSON only:
 
 {"claims": ["claim 1", "claim 2", ...]}
 
-Return AT MOST 5 claims. Choose the 5 most consequential — the ones whose
-falsification would most damage the article's credibility. Quality over
-quantity: returning 3 strong load-bearing claims beats returning 6 mixed
-ones.
+Return AT MOST 5 claims. Quality over quantity: returning 2 strong,
+verifiable, atomic claims beats returning 5 mixed ones — the goal is
+that each claim you return SHOULD produce a confident supports/contradicts
+verdict from web evidence, not "unverified".
 """
 
 
