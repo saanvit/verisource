@@ -25,13 +25,13 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from mistralai import Mistral
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 from backend.models import ClaimEvidence, ClaimVerification
 from backend.reliability.content_extractor import ExtractedContent
 from backend.reliability.domain_reputation import lookup as lookup_domain
+from backend.reliability.llm_client import chat_json
 from backend.search.web_search import SearchHit, web_search
 
 MAX_CLAIMS = 8
@@ -133,31 +133,15 @@ def _parse_json(raw: str) -> dict[str, Any]:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
-def _call_decompose(client: Mistral, prompt: str) -> str:
-    response = client.chat.complete(
-        model=settings.mistral_model,
-        messages=[
-            {"role": "system", "content": DECOMPOSE_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"},
-    )
-    return response.choices[0].message.content or ""
+def _call_decompose(prompt: str) -> str:
+    """Route to whichever LLM is configured (OpenRouter preferred, Mistral
+    fallback). Tenacity wraps transient failures with exponential backoff."""
+    return chat_json(DECOMPOSE_SYSTEM_PROMPT, prompt, temperature=0.1, json_mode=True)
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=4))
-def _call_stance(client: Mistral, prompt: str) -> str:
-    response = client.chat.complete(
-        model=settings.mistral_model,
-        messages=[
-            {"role": "system", "content": STANCE_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.0,
-        response_format={"type": "json_object"},
-    )
-    return response.choices[0].message.content or ""
+def _call_stance(prompt: str) -> str:
+    return chat_json(STANCE_SYSTEM_PROMPT, prompt, temperature=0.0, json_mode=True)
 
 
 # ---------- Public surface ----------
@@ -186,9 +170,8 @@ async def decompose_claims(content: ExtractedContent) -> list[str]:
         "Return the JSON object now."
     )
 
-    client = Mistral(api_key=settings.mistral_api_key)
     try:
-        raw = await asyncio.to_thread(_call_decompose, client, prompt)
+        raw = await asyncio.to_thread(_call_decompose, prompt)
         data = _parse_json(raw)
     except Exception:  # pragma: no cover - network/parse failures are expected
         return []
@@ -224,9 +207,8 @@ async def _label_hits_llm(claim: str, hits: list[SearchHit]) -> list[str]:
     )
     prompt = f"TARGET CLAIM:\n{claim}\n\nHITS:\n{serialized}\n\nReturn JSON only."
 
-    client = Mistral(api_key=settings.mistral_api_key)
     try:
-        raw = await asyncio.to_thread(_call_stance, client, prompt)
+        raw = await asyncio.to_thread(_call_stance, prompt)
         data = _parse_json(raw)
     except Exception:  # pragma: no cover
         return ["unclear"] * len(hits)

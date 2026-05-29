@@ -12,12 +12,12 @@ import json
 import re
 from typing import Any
 
-from mistralai import Mistral
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from backend.config import settings
 from backend.models import ContentAnalysis
 from backend.reliability.content_extractor import ExtractedContent
+from backend.reliability.llm_client import chat_json
 
 MAX_INPUT_CHARS = 12_000
 
@@ -171,17 +171,10 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
-def _call_mistral(client: Mistral, prompt: str) -> str:
-    response = client.chat.complete(
-        model=settings.mistral_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"},
-    )
-    return response.choices[0].message.content or ""
+def _call_llm(prompt: str) -> str:
+    """Route to whichever LLM is configured (OpenRouter preferred, Mistral
+    fallback). Tenacity wraps transient failures with exponential backoff."""
+    return chat_json(SYSTEM_PROMPT, prompt, temperature=0.1, json_mode=True)
 
 
 async def analyze_content(content: ExtractedContent) -> ContentAnalysis:
@@ -197,9 +190,8 @@ async def analyze_content(content: ExtractedContent) -> ContentAnalysis:
         "Return the JSON object now."
     )
 
-    client = Mistral(api_key=settings.mistral_api_key)
     try:
-        raw = _call_mistral(client, prompt)
+        raw = _call_llm(prompt)
         data = _parse_llm_json(raw)
     except Exception:  # pragma: no cover - network/parse failures are expected in dev
         return _heuristic_analysis(content)
