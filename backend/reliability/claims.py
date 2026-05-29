@@ -34,7 +34,7 @@ from backend.reliability.domain_reputation import lookup as lookup_domain
 from backend.reliability.llm_client import chat_json
 from backend.search.web_search import SearchHit, web_search
 
-MAX_CLAIMS = 8
+MAX_CLAIMS = 5
 MAX_INPUT_CHARS = 12_000
 EVIDENCE_PER_CLAIM = 4
 
@@ -48,56 +48,89 @@ def _nli_backend() -> str:
 
 DECOMPOSE_SYSTEM_PROMPT = """You are a fact-checking assistant.
 Decompose the input article into a small set of ATOMIC, INDEPENDENTLY
-VERIFIABLE factual claims. Each claim must:
-- contain EXACTLY ONE factual assertion. A retrieval search should be able
-  to verify each claim with a single targeted query.
-- be self-contained (not a question or opinion),
-- name the specific actor, action, object, and any quantities/dates verbatim
-  where present,
-- be checkable against external sources without referring back to the article.
+VERIFIABLE factual claims THAT THE ARTICLE'S ARGUMENT ACTUALLY DEPENDS ON.
 
-CRITICAL — atomicity over faithfulness:
+Your goal is NOT to enumerate every fact in the article. Your goal is to
+identify the LOAD-BEARING claims — the ones whose truth or falsity would
+meaningfully change a reader's assessment of whether the article is
+reliable. These are the claims most worth spending verification budget on.
+
+Each claim must:
+- contain EXACTLY ONE factual assertion (a single retrieval query should
+  be able to verify it),
+- be self-contained (not a question or opinion),
+- name the specific actor, action, object, and any quantities/dates
+  verbatim where present,
+- be checkable against external sources without referring back to the
+  article.
+
+EXTRACT (high priority):
+
+* Specific impact claims — "X policy caused Y measurable outcome"
+* Statistical/quantitative assertions — numbers of people, percentages,
+  dollar amounts, dates of specific events
+* Attributed quotes whose accuracy or context can be verified
+* Predictions or causal claims that the article uses to support its thesis
+* Statements about what specific organizations, courts, or officials did
+* Bold claims that, if false, would meaningfully undermine the article
+
+SKIP (low priority — DO NOT include unless the article's argument depends on them):
+
+* Background definitions of what a law/policy/term means
+* Bios of authors or quoted individuals (where they work, their titles)
+* Generic dates of well-known events (when something passed/took effect)
+* Statements of the article's own structure ("this piece argues...", "we'll
+  explore...")
+* Generic context-setting facts that any reader would already accept
+
+Worked examples:
+
+  Input article: "In 2023, Texas passed SB 17, which took effect January 1,
+  2024. The law bans DEI offices at public universities. Dr. Garces, VP at
+  the Alliance for Higher Education, told us that the law has caused
+  measurable harm: enrollment of underrepresented minorities at UT-Austin
+  dropped 14% in the first year, and over 60 staff were laid off, mostly
+  women of color."
+
+  WRONG (extracts background facts, misses the actual argument):
+    - "Texas passed SB 17 in 2023"
+    - "SB 17 took effect January 1, 2024"
+    - "SB 17 bans DEI offices"
+    - "Dr. Garces is VP at Alliance for Higher Education"
+
+  RIGHT (focuses on argument-bearing claims):
+    - "Enrollment of underrepresented minorities at UT-Austin dropped 14%
+       in the first year after SB 17 took effect."
+    - "Over 60 staff were laid off at Texas public universities under
+       SB 17."
+    - "The majority of staff laid off under SB 17 were women of color."
+
+Compound claims — split aggressively:
 
 EVEN IF the article presents multiple facts in a single sentence connected
-by "and", "where", "while", "who also", commas, or any similar construction,
-you MUST split them into separate claims when each fact could be
-independently true or false. Do NOT preserve the article's sentence
-structure when doing so would combine independent facts. Faithfulness to
-the article's phrasing is NOT a goal — atomicity is.
+by "and", "where", "while", "who also", commas, or similar constructions,
+SPLIT them into separate claims when each could be independently true or
+false. Atomicity matters more than mirroring the article's sentence
+structure.
 
-Worked examples of compound-splitting:
+But do NOT over-split single events: "Trump met Putin in Helsinki in 2018"
+is ONE claim — it can't be partially true.
 
-  Input: "Liliana Garces serves as VP at the Alliance, where Jackie Pedota
-          also serves as a fellow."
-  Output (TWO claims, not one):
-    - "Liliana Garces serves as vice president at the Alliance for
-       Higher Education."
-    - "Jackie Pedota serves as a fellow at the Alliance for Higher
-       Education."
+DO NOT include rhetorical statements, value judgments, opinion framed as
+fact, or speculation marked with "may", "could", "is expected to".
 
-  Input: "The bill passed the Senate 52-48 and was signed by the President
-          on March 3."
-  Output (TWO claims):
-    - "The bill passed the Senate by a 52-48 vote."
-    - "The President signed the bill on March 3."
+If the piece is satire/parody/fabricated, extract the FACTUAL-SOUNDING
+claims the piece makes (as if they were stated as fact) so they can be
+checked.
 
-Counter-example — do NOT over-split single events:
-
-  Input: "Trump met Putin in Helsinki in 2018."
-  Output (ONE claim — single event, can't be partially true):
-    - "Trump met Putin in Helsinki in 2018."
-
-DO NOT include rhetorical statements, value judgments, summary statements,
-or speculation framed with "may", "could", "is expected to" — those are not
-atomic claims. Skip anything that is purely opinion.
-
-If the piece is satire/parody/fabricated, extract the FACTUAL-SOUNDING claims
-the piece makes (as if they were stated as fact) so they can be checked.
 Return STRICT JSON only:
 
 {"claims": ["claim 1", "claim 2", ...]}
 
-Return AT MOST 6 claims. Prefer the most concrete and high-signal ones.
+Return AT MOST 5 claims. Choose the 5 most consequential — the ones whose
+falsification would most damage the article's credibility. Quality over
+quantity: returning 3 strong load-bearing claims beats returning 6 mixed
+ones.
 """
 
 
