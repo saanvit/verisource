@@ -359,9 +359,12 @@ def test_assess_per_claim_returns_none_reflection_trace(monkeypatch):
     async def fake_decompose(content):
         return ["one", "two"]
 
-    async def fake_verify_all(claims_list, *, exclude_domain=None, concurrency=4):
+    async def fake_verify_all(claims_list, *, exclude_domain=None, concurrency=4, adversarial=False):
         return [_verification(c, [_evidence(f"https://e.example/{i}")], score=70.0,
                               status="supported") for i, c in enumerate(claims_list)]
+
+    async def fake_ground_opinions(content, *, exclude_domain=None):
+        return []
 
     async def fake_analyze(content):
         from backend.models import ContentAnalysis
@@ -372,6 +375,7 @@ def test_assess_per_claim_returns_none_reflection_trace(monkeypatch):
 
     monkeypatch.setattr(pcm, "decompose_claims", fake_decompose)
     monkeypatch.setattr(pcm, "verify_all_claims", fake_verify_all)
+    monkeypatch.setattr(pcm, "ground_opinions", fake_ground_opinions)
     monkeypatch.setattr(pcm, "analyze_content", fake_analyze)
 
     report = asyncio.run(
@@ -389,9 +393,12 @@ def test_assess_per_claim_reflective_populates_trace(monkeypatch):
     async def fake_decompose(content):
         return ["alpha", "beta"]
 
-    async def fake_verify_all(claims_list, *, exclude_domain=None, concurrency=4):
+    async def fake_verify_all(claims_list, *, exclude_domain=None, concurrency=4, adversarial=False):
         return [_verification(c, [_evidence(f"https://e.example/{i}")], score=70.0,
                               status="supported") for i, c in enumerate(claims_list)]
+
+    async def fake_ground_opinions(content, *, exclude_domain=None):
+        return []
 
     async def fake_analyze(content):
         from backend.models import ContentAnalysis
@@ -405,6 +412,7 @@ def test_assess_per_claim_reflective_populates_trace(monkeypatch):
 
     monkeypatch.setattr(pcm, "decompose_claims", fake_decompose)
     monkeypatch.setattr(pcm, "verify_all_claims", fake_verify_all)
+    monkeypatch.setattr(pcm, "ground_opinions", fake_ground_opinions)
     monkeypatch.setattr(pcm, "analyze_content", fake_analyze)
     monkeypatch.setattr(reflection_mod, "_call_critique_llm", fake_critique)
 

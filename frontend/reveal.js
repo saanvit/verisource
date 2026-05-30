@@ -32,8 +32,16 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  // An element is "revealable" only if it exists AND is actually visible
+  // (not inside a display:none tab pane). Animating or measuring hidden
+  // nodes either no-ops or returns offsetHeight=0, which breaks the
+  // reflection-theater height pre-measurement. Guard everything with this.
+  function visible(el) {
+    return !!(el && el.offsetParent !== null);
+  }
+
   function animate(el, keyframes, options) {
-    if (!el) return Promise.resolve();
+    if (!visible(el)) return Promise.resolve();
     const opts = Object.assign({ easing: EASE, fill: "both" }, options || {});
     const anim = el.animate(keyframes, opts);
     return anim.finished.catch(() => {}); // swallow cancelations
@@ -245,30 +253,28 @@
     const ring = rootEl.querySelector(".score-ring");
     const numeral = rootEl.querySelector(".score-ring .score-num");
     const heroBadges = rootEl.querySelectorAll(".score-hero-bar .meta-pill, .verdict-badge");
-    const reflectionEl = rootEl.querySelector(".reflection-trace");
-    const crossRefEl = rootEl.querySelector(".cross-ref-panel");
-    const subCardsEl = rootEl.querySelector(".grid-2");
-    const claimList = rootEl.querySelector(".claim-list");
-    const redFlagsEl = rootEl.querySelector(".red-flags-block");
-    const sourcesEl = rootEl.querySelector('[data-reveal="sources"]');
+    // Only animate the ACTIVE pane's content — hidden panes (display:none)
+    // must keep their natural opacity so they look right when tab-switched.
+    const activePane = rootEl.querySelector(".seg-pane.active");
+    const reflectionEl = activePane && activePane.querySelector(".reflection-trace");
 
-    // Initial state: everything invisible.
-    [hero, reflectionEl, crossRefEl, subCardsEl, claimList, redFlagsEl, sourcesEl].forEach((el) => {
-      if (!el) return;
-      el.style.opacity = "0";
-      el.style.transform = "translateY(14px)";
-      el.style.willChange = "opacity, transform";
-    });
+    // Initial state: hide only the always-visible hero + the active pane.
+    if (hero) {
+      hero.style.opacity = "0";
+      hero.style.transform = "translateY(14px)";
+      hero.style.willChange = "opacity, transform";
+    }
+    if (activePane) {
+      activePane.style.opacity = "0";
+      activePane.style.willChange = "opacity";
+    }
     if (numeral) numeral.textContent = "0";
     if (ring) ring.style.setProperty("--pct", "0");
 
-    // If the API took too long, skip the theater for everyone's sanity.
+    // If the API took too long or reduced-motion, skip the theater.
     if (REDUCED || skipTheater) {
-      [hero, reflectionEl, crossRefEl, subCardsEl, claimList, redFlagsEl, sourcesEl].forEach((el) => {
-        if (!el) return;
-        el.style.opacity = "1";
-        el.style.transform = "none";
-      });
+      if (hero) { hero.style.opacity = "1"; hero.style.transform = "none"; }
+      if (activePane) activePane.style.opacity = "1";
       if (ring && finalScore != null) ring.style.setProperty("--pct", finalScore);
       if (numeral && finalScore != null) numeral.textContent = finalScore;
       return;
@@ -299,49 +305,24 @@
       }, i * 40);
     });
 
-    /* === 4. Cross-reference panel === */
-    if (crossRefEl) {
-      await delay(80);
-      await fadeRise(crossRefEl, 500);
+    /* === 4. Reveal the active pane, then stagger its top-level children === */
+    if (activePane) {
+      activePane.style.opacity = "1";
+      // If this pane is the Agent trace, play the reflection theater.
+      if (reflectionEl) {
+        await delay(120);
+        await playReflectionTheater(reflectionEl);
+      } else {
+        // Otherwise stagger the pane's direct content blocks in.
+        const blocks = Array.from(activePane.children);
+        blocks.forEach((c) => {
+          c.style.opacity = "0";
+          c.style.transform = "translateY(12px)";
+        });
+        await delay(80);
+        await Promise.all(blocks.map((c, i) => fadeRise(c, 440, i * 90)));
+      }
     }
-
-    /* === 5. Sub-cards stagger === */
-    if (subCardsEl) {
-      const cards = subCardsEl.querySelectorAll(".card");
-      subCardsEl.style.opacity = "1";
-      subCardsEl.style.transform = "none";
-      cards.forEach((c) => {
-        c.style.opacity = "0";
-        c.style.transform = "translateY(10px)";
-      });
-      const promises = Array.from(cards).map((c, i) => fadeRise(c, 400, i * 80));
-      await Promise.all(promises);
-    }
-
-    /* === 6. Reflection theater OR per-claim list === */
-    if (reflectionEl) {
-      reflectionEl.style.opacity = "1";
-      reflectionEl.style.transform = "none";
-      await playReflectionTheater(reflectionEl);
-    }
-
-    if (claimList) {
-      const items = claimList.querySelectorAll(".claim");
-      claimList.style.opacity = "1";
-      claimList.style.transform = "none";
-      items.forEach((c) => {
-        c.style.opacity = "0";
-        c.style.transform = "translateY(10px)";
-      });
-      Array.from(items).forEach((c, i) => fadeRise(c, 380, i * 60));
-      // Reveal the parent (section-title etc.) immediately
-      const parent = claimList.parentElement;
-      if (parent && parent !== rootEl) fadeIn(parent.querySelector(".section-title"), 320);
-    }
-
-    /* === 7. Red flags + sources (parallel tail) === */
-    if (redFlagsEl) fadeRise(redFlagsEl, 380, 100);
-    if (sourcesEl) fadeRise(sourcesEl, 380, 200);
   }
 
   // Expose to global scope (no module bundler in this project).

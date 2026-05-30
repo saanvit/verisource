@@ -62,6 +62,36 @@ class ClaimVerification(BaseModel):
     n_evidence: int
     n_high_quality: int
     evidence: list[ClaimEvidence]
+    # Adversarial-retrieval signal (populated only when the claim was
+    # verified with adversarial=True). robustness 0-100: high = the claim
+    # survived a deliberate search for disconfirming evidence. All default
+    # None so existing hand-built ClaimVerifications stay valid.
+    robustness: float | None = Field(default=None, ge=0, le=100)
+    robustness_tag: Literal["survived", "weakened", "refuted", "untested"] | None = None
+    adversarial_query: str | None = None
+
+
+class OpinionPremise(BaseModel):
+    """One factual premise that an opinion rests on, plus its verification."""
+
+    text: str
+    verification: ClaimVerification
+
+
+class OpinionGrounding(BaseModel):
+    """An article opinion + an assessment of whether it is grounded in facts.
+
+    The verifiable-facts track checks the article's factual assertions.
+    This complementary track surfaces the article's contestable
+    opinions/interpretations and asks whether the factual premises each
+    opinion rests on actually hold up to independent verification.
+    """
+
+    opinion: str
+    stance_summary: str
+    premises: list[OpinionPremise]
+    grounding_score: float = Field(..., ge=0, le=100)
+    verdict: Literal["well-grounded", "weakly-grounded", "unsupported", "contradicted"]
 
 
 class ReflectionAction(BaseModel):
@@ -129,6 +159,10 @@ class ContentAnalysis(BaseModel):
     # Populated only by the per-claim-reflective pipeline. Each entry is
     # one round of the agent's critique + the structured fixes it applied.
     reflection_trace: list[ReflectionRound] | None = None
+    # Populated only by per-claim modes (opinion-grounding track). Each
+    # entry is one of the article's opinions + whether its factual
+    # premises hold up. Default None keeps the response backward-compatible.
+    opinion_groundings: list[OpinionGrounding] | None = None
 
 
 class CorroboratingSource(BaseModel):

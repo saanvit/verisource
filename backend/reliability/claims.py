@@ -180,6 +180,22 @@ Output STRICT JSON only, in the SAME ORDER as the input hits:
 """
 
 
+ADVERSARIAL_QUERY_SYSTEM_PROMPT = """You are a skeptical fact-checker.
+Given a factual claim, generate ONE web-search query designed to surface
+evidence that the claim is FALSE, misleading, exaggerated, or contested.
+
+Include falsification-oriented terms where natural — e.g. "debunked",
+"false", "no evidence", "retracted", "fact check", "misleading",
+"disputed" — combined with the claim's specific entities/dates so the
+query stays on-topic. The goal is to actively look for the strongest
+disconfirming evidence, not to restate the claim.
+
+Return STRICT JSON only:
+
+{"query": "<the falsification-oriented search query>"}
+"""
+
+
 # ---------- LLM plumbing ----------
 
 
@@ -203,6 +219,17 @@ def _call_decompose(prompt: str) -> str:
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=4))
 def _call_stance(prompt: str) -> str:
     return chat_json(STANCE_SYSTEM_PROMPT, prompt, temperature=0.0, json_mode=True)
+
+
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(min=1, max=4))
+def _call_adversarial_query(claim: str) -> str:
+    """Ask the LLM for a falsification-oriented search query for a claim."""
+    return chat_json(
+        ADVERSARIAL_QUERY_SYSTEM_PROMPT,
+        f"CLAIM:\n{claim}\n\nReturn JSON only.",
+        temperature=0.3,
+        json_mode=True,
+    )
 
 
 # ---------- Public surface ----------
@@ -460,31 +487,120 @@ def recompute_verification_after_relabel(v: ClaimVerification) -> ClaimVerificat
     )
 
 
-async def verify_claim(claim: str, *, exclude_domain: str | None = None) -> ClaimVerification:
+def _robustness(labels: list[str], adversarial_ran: bool) -> tuple[float, str]:
+    """Map combined (normal + adversarial) stance labels to a robustness
+    score + tag.
+
+    Robustness asks: did the claim SURVIVE a deliberate search for
+    disconfirming evidence? It is distinct from the support score —
+    a claim can be well-supported yet fragile (adversarial search easily
+    finds credible contradictions), or weakly-supported yet robust
+    (nobody credibly disputes it).
+
+    * untested  → adversarial search didn't run (score 50, neutral)
+    * survived  → ran, 0 contradicting hits found (score 85)
+    * weakened  → ran, contradictions are a minority of labels (score 45)
+    * refuted   → ran, contradictions are a plurality/majority (score 15)
+    """
+    if not adversarial_ran:
+        return 50.0, "untested"
+    n = len(labels)
+    if n == 0:
+        return 50.0, "untested"
+    n_contra = sum(1 for label_value in labels if label_value == "contradicts")
+    n_support = sum(1 for label_value in labels if label_value == "supports")
+    contra_frac = n_contra / n
+    if n_contra == 0:
+        return 85.0, "survived"
+    if n_contra >= n_support and contra_frac >= 0.34:
+        return 15.0, "refuted"
+    return 45.0, "weakened"
+
+
+def _dedup_hits(hits: list[SearchHit]) -> list[SearchHit]:
+    """Dedup combined hits by URL, keeping the first occurrence (normal
+    search hits are added before adversarial ones, so the canonical copy
+    wins)."""
+    seen: set[str] = set()
+    out: list[SearchHit] = []
+    for h in hits:
+        if h.url in seen:
+            continue
+        seen.add(h.url)
+        out.append(h)
+    return out
+
+
+async def verify_claim(
+    claim: str,
+    *,
+    exclude_domain: str | None = None,
+    adversarial: bool = False,
+) -> ClaimVerification:
     """Retrieve evidence for a claim and label it.
 
     No LLM / no search keys → returns an ``unverified`` result with empty
     evidence so the caller can still aggregate.
+
+    When ``adversarial`` is True, ALSO runs a falsification-oriented
+    search (an LLM-generated query designed to surface disconfirming
+    evidence), merges + dedups the two hit sets, and attaches a
+    robustness signal indicating whether the claim survived the
+    adversarial probe. This roughly doubles the Tavily cost per claim.
     """
     hits = await web_search(claim, k=EVIDENCE_PER_CLAIM, exclude_domain=exclude_domain)
+
+    adv_query: str | None = None
+    if adversarial and settings.has_llm and settings.has_search:
+        try:
+            raw = await asyncio.to_thread(_call_adversarial_query, claim)
+            adv_query = (_parse_json(raw).get("query") or "").strip() or None
+        except Exception:  # pragma: no cover - network/parse failures expected
+            adv_query = None
+        if adv_query:
+            adv_hits = await web_search(
+                adv_query, k=EVIDENCE_PER_CLAIM, exclude_domain=exclude_domain
+            )
+            hits = _dedup_hits(list(hits) + list(adv_hits))
+
     if not hits:
-        return _build_verification(claim, [], [])
+        v = _build_verification(claim, [], [])
+        if adversarial:
+            rob, tag = _robustness([], adversarial_ran=False)
+            v = v.model_copy(
+                update={"robustness": rob, "robustness_tag": tag, "adversarial_query": adv_query}
+            )
+        return v
 
     labels = await _label_hits(claim, hits)
-    return _build_verification(claim, list(hits), list(labels))
+    v = _build_verification(claim, list(hits), list(labels))
+    if adversarial:
+        rob, tag = _robustness(list(labels), adversarial_ran=bool(adv_query))
+        v = v.model_copy(
+            update={"robustness": rob, "robustness_tag": tag, "adversarial_query": adv_query}
+        )
+    return v
 
 
 async def verify_all_claims(
-    claims: list[str], *, exclude_domain: str | None = None, concurrency: int = 4
+    claims: list[str],
+    *,
+    exclude_domain: str | None = None,
+    concurrency: int = 4,
+    adversarial: bool = False,
 ) -> list[ClaimVerification]:
-    """Verify each claim concurrently, bounded by ``concurrency``."""
+    """Verify each claim concurrently, bounded by ``concurrency``.
+
+    ``adversarial`` is forwarded to ``verify_claim`` — when True, each
+    claim is additionally stress-tested against a falsification search.
+    """
     if not claims:
         return []
     sem = asyncio.Semaphore(max(1, concurrency))
 
     async def _one(c: str) -> ClaimVerification:
         async with sem:
-            return await verify_claim(c, exclude_domain=exclude_domain)
+            return await verify_claim(c, exclude_domain=exclude_domain, adversarial=adversarial)
 
     return await asyncio.gather(*[_one(c) for c in claims])
 

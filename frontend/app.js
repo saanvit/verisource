@@ -121,6 +121,43 @@ function statusBadgeClass(status) {
   }[status] || "outline";
 }
 
+// Small chip shown on a claim summary indicating whether it survived the
+// adversarial (falsification-oriented) search.
+function robustnessChip(v) {
+  if (!v.robustness_tag || v.robustness_tag === "untested") return "";
+  const tone = {
+    survived: "green",
+    weakened: "yellow",
+    refuted: "red",
+  }[v.robustness_tag] || "outline";
+  const label = {
+    survived: "robust",
+    weakened: "weakened",
+    refuted: "refuted",
+  }[v.robustness_tag] || v.robustness_tag;
+  return `<span class="badge ${tone} robustness-chip" title="Adversarial search: ${escapeHtml(v.robustness_tag)}">${escapeHtml(label)}</span>`;
+}
+
+// Segmented results tabs — instant CSS show/hide, no animation. Called
+// after renderReport() injects the HTML. defaultSeg picks which pane is
+// active on load (Agent in reflective mode so the theater plays).
+function setupResultTabs(rootEl) {
+  const segEl = rootEl.querySelector(".seg");
+  if (!segEl) return;
+  const defaultSeg = segEl.dataset.defaultSeg || "overview";
+  const buttons = Array.from(rootEl.querySelectorAll(".seg-btn"));
+  const panes = Array.from(rootEl.querySelectorAll(".seg-pane"));
+
+  function activate(name) {
+    buttons.forEach((b) => b.classList.toggle("active", b.dataset.seg === name));
+    panes.forEach((p) => p.classList.toggle("active", p.dataset.segPane === name));
+  }
+  buttons.forEach((b) => {
+    b.addEventListener("click", () => activate(b.dataset.seg));
+  });
+  activate(defaultSeg);
+}
+
 function renderEvidence(evidence) {
   if (!evidence?.length) {
     return `<div class="claim-evidence-empty">No independent evidence retrieved for this claim.</div>`;
@@ -288,6 +325,7 @@ function renderClaimVerifications(verifications, coverage) {
                   <span class="claim-status-icon">${icon}</span>
                   <span class="claim-text">${escapeHtml(v.claim)}</span>
                   <span class="claim-meta">
+                    ${robustnessChip(v)}
                     <span class="claim-score">${score}</span>
                     <span class="claim-chevron">${CHEVRON}</span>
                   </span>
@@ -313,7 +351,17 @@ function renderClaimVerifications(verifications, coverage) {
                     <strong>${v.n_evidence}</strong> evidence ·
                     <strong>${v.n_high_quality}</strong> high-quality ·
                     status <strong>${v.status}</strong>
+                    ${
+                      v.robustness_tag && v.robustness_tag !== "untested"
+                        ? ` · adversarial <strong>${escapeHtml(v.robustness_tag)}</strong>`
+                        : ""
+                    }
                   </div>
+                  ${
+                    v.adversarial_query
+                      ? `<div class="adv-query">Stress-tested with: <em>${escapeHtml(v.adversarial_query)}</em></div>`
+                      : ""
+                  }
                   ${renderEvidence(v.evidence)}
                 </div>
               </details>`;
@@ -431,7 +479,10 @@ function renderReport(report) {
       </div>
     </div>`;
 
-  return `
+  const hasOpinions = Array.isArray(ca.opinion_groundings) && ca.opinion_groundings.length > 0;
+
+  // --- Sticky hero (lives outside the tabs, always visible) ---
+  const hero = `
     <div class="score-hero" style="--score-glow:${glow}" data-reveal="hero">
       <div class="score-hero-top">
         <div class="score-ring" style="--pct:${overall};--ring:${color}">
@@ -467,86 +518,170 @@ function renderReport(report) {
             : ""
         }
       </div>
-    </div>
+    </div>`;
 
-    ${hasReflection ? renderReflectionTrace(ca.reflection_trace) : ""}
+  // --- OVERVIEW tab: compact signal strip + red flags ---
+  const overviewPane = `
+    <div class="seg-pane" data-seg-pane="overview">
+      ${renderSignalStrip(report)}
+      ${
+        hasRedFlags
+          ? `<div class="red-flags-block" data-reveal="red-flags">
+               <div class="section-title red-flags-title">
+                 <span class="alert-icon" aria-hidden="true">
+                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                     <path d="M12 9v4M12 17v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                     <path d="M10.3 3.86 2.07 18a2 2 0 0 0 1.73 3h16.4a2 2 0 0 0 1.73-3L13.7 3.86a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+                   </svg>
+                 </span>
+                 Red flags
+                 <span class="section-meta">${ca.red_flags.length} flagged</span>
+               </div>
+               <ul class="flags">${ca.red_flags.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
+             </div>`
+          : `<p class="status quiet-positive">No red flags identified.</p>`
+      }
+    </div>`;
 
-    ${crossRefPanel}
+  // --- CLAIMS & OPINIONS tab ---
+  const claimsPane = `
+    <div class="seg-pane" data-seg-pane="claims">
+      ${
+        hasPerClaim
+          ? renderClaimVerifications(ca.claim_verifications, ca.coverage)
+          : `<div>
+               <div class="section-title">Main claims
+                 <span class="section-meta">${(ca.main_claims || []).length} extracted</span>
+               </div>
+               ${listOrNone(
+                 ca.main_claims, "claims",
+                 (ca.summary || "").startsWith("Heuristic-only")
+                   ? "No claims extracted by the heuristic. Set MISTRAL_API_KEY for LLM-based extraction."
+                   : "No factual claims identified."
+               )}
+             </div>`
+      }
+      ${hasOpinions ? renderOpinionGroundings(ca.opinion_groundings) : ""}
+    </div>`;
 
-    <div class="grid-2" data-reveal="sub-cards">
-      <div class="card card-sub">
-        <div class="card-sub-head">
-          <span class="section-meta">Content analysis</span>
-          <div class="card-sub-num">${Math.round(report.content_analysis.score)}<span class="card-sub-denom">/100</span></div>
+  // --- EVIDENCE tab: dominant cross-ref panel + full source list ---
+  const evidencePane = `
+    <div class="seg-pane" data-seg-pane="evidence">
+      ${crossRefPanel}
+      <div>
+        <div class="section-title">All retrieved sources
+          <span class="section-meta">${(xref.sources || []).length} sources</span>
         </div>
-        <div class="card-sub-sub">weight ${(w.content * 100).toFixed(0)}% · ${escapeHtml(ca.summary || "").slice(0, 60)}${(ca.summary || "").length > 60 ? "…" : ""}</div>
-        <div style="margin-top:10px">
-          ${bar("Factuality", report.content_analysis.factuality)}
-          ${bar("Objectivity", report.content_analysis.objectivity)}
-          ${bar("Transparency", report.content_analysis.transparency)}
-          ${bar("Restraint", report.content_analysis.sensationalism)}
-        </div>
+        ${renderSources(xref.sources)}
       </div>
-      <div class="card card-sub">
-        <div class="card-sub-head">
-          <span class="section-meta">Domain prior</span>
-          <div class="card-sub-num">${Math.round(dom.score || 0)}<span class="card-sub-denom">/100</span></div>
-        </div>
-        <div class="card-sub-sub">
-          <strong>${escapeHtml(dom.type || "unknown")}</strong> · weight ${(w.domain * 100).toFixed(0)}%
-        </div>
-        <div class="card-sub-sub" style="margin-top:8px">${escapeHtml(dom.rationale || "")}</div>
-      </div>
+    </div>`;
+
+  // --- AGENT tab (reflective mode only) ---
+  const agentPane = hasReflection
+    ? `<div class="seg-pane" data-seg-pane="agent">${renderReflectionTrace(ca.reflection_trace)}</div>`
+    : "";
+
+  // Default tab: Agent when a reflection trace exists (so the theater plays
+  // on load), else Overview. The sticky hero shows the verdict regardless.
+  const defaultSeg = hasReflection ? "agent" : "overview";
+
+  const seg = `
+    <div class="seg" role="tablist" data-default-seg="${defaultSeg}">
+      <button class="seg-btn" data-seg="overview" role="tab">Overview</button>
+      <button class="seg-btn" data-seg="claims" role="tab">Claims & Opinions</button>
+      <button class="seg-btn" data-seg="evidence" role="tab">Evidence</button>
+      ${hasReflection ? `<button class="seg-btn" data-seg="agent" role="tab">Agent trace</button>` : ""}
+    </div>`;
+
+  return `
+    ${hero}
+    ${seg}
+    <div class="seg-panes">
+      ${overviewPane}
+      ${claimsPane}
+      ${evidencePane}
+      ${agentPane}
     </div>
-
-    ${
-      hasPerClaim
-        ? renderClaimVerifications(ca.claim_verifications, ca.coverage)
-        : `<div data-reveal="main-claims">
-             <div class="section-title">
-               Main claims
-               <span class="section-meta">${(ca.main_claims || []).length} extracted</span>
-             </div>
-             ${listOrNone(
-               ca.main_claims,
-               "claims",
-               (ca.summary || "").startsWith("Heuristic-only")
-                 ? "No claims extracted by the heuristic. Set MISTRAL_API_KEY for LLM-based extraction."
-                 : "No factual claims identified."
-             )}
-           </div>`
-    }
-
-    ${
-      hasRedFlags
-        ? `<div class="red-flags-block" data-reveal="red-flags">
-             <div class="section-title red-flags-title">
-               <span class="alert-icon" aria-hidden="true">
-                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                   <path d="M12 9v4M12 17v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                   <path d="M10.3 3.86 2.07 18a2 2 0 0 0 1.73 3h16.4a2 2 0 0 0 1.73-3L13.7 3.86a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
-                 </svg>
-               </span>
-               Red flags
-               <span class="section-meta">${ca.red_flags.length} flagged</span>
-             </div>
-             <ul class="flags">${ca.red_flags.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>
-           </div>`
-        : ""
-    }
-
-    ${
-      hasPerClaim
-        ? ""
-        : `<div data-reveal="sources">
-             <div class="section-title">
-               Corroborating sources
-               <span class="section-meta">${(xref.sources || []).length} retrieved</span>
-             </div>
-             ${renderSources(xref.sources)}
-           </div>`
-    }
   `;
+}
+
+// Compact 3-signal strip for the Overview tab — small stat tiles instead
+// of the big panels, so Overview stays scannable.
+function renderSignalStrip(report) {
+  const w = report.weights || {};
+  const ca = report.content_analysis || {};
+  const xref = report.cross_reference || {};
+  const dom = report.domain_reputation || {};
+  const tile = (label, score, weight, sub) => `
+    <div class="signal-tile">
+      <div class="signal-tile-num" style="color:${scoreColor(Math.round(score))}">${Math.round(score)}<span class="signal-tile-denom">/100</span></div>
+      <div class="signal-tile-label">${escapeHtml(label)}</div>
+      <div class="signal-tile-sub">${escapeHtml(sub)} · ${(weight * 100).toFixed(0)}% weight</div>
+    </div>`;
+  return `
+    <div class="signal-strip" data-reveal="sub-cards">
+      ${tile("Domain prior", dom.score || 0, w.domain || 0, dom.type || "unknown")}
+      ${tile("Content", ca.score || 0, w.content || 0, "LLM analysis")}
+      ${tile("Cross-reference", xref.score || 0, w.cross_reference || 0, (xref.consensus || "no-data").replaceAll("-", " "))}
+    </div>`;
+}
+
+// Opinion-grounding cards: each opinion + whether its factual premises hold.
+function renderOpinionGroundings(groundings) {
+  if (!groundings?.length) return "";
+  const verdictTone = {
+    "well-grounded": "green",
+    "weakly-grounded": "yellow",
+    "unsupported": "outline",
+    "contradicted": "red",
+  };
+  return `
+    <div class="opinion-block">
+      <div class="section-title">Opinion grounding
+        <span class="section-meta">${groundings.length} opinion${groundings.length === 1 ? "" : "s"} · grounded in fact?</span>
+      </div>
+      <p class="opinion-intro">The article's contestable claims, and whether the facts they rest on hold up to independent verification.</p>
+      <div class="opinion-list">
+        ${groundings.map((g, i) => {
+          const tone = verdictTone[g.verdict] || "outline";
+          const score = Math.round(g.grounding_score);
+          return `
+            <details class="opinion" ${i === 0 ? "open" : ""}>
+              <summary>
+                <span class="opinion-text">${escapeHtml(g.opinion)}</span>
+                <span class="opinion-meta">
+                  <span class="badge ${tone}">${escapeHtml(g.verdict.replaceAll("-", " "))}</span>
+                  <span class="opinion-score">${score}</span>
+                  <span class="claim-chevron">${CHEVRON}</span>
+                </span>
+              </summary>
+              <div class="opinion-body">
+                ${g.stance_summary ? `<p class="opinion-stance">${escapeHtml(g.stance_summary)}</p>` : ""}
+                ${
+                  (g.premises || []).length
+                    ? `<div class="opinion-premises">
+                         <div class="opinion-premises-label">Rests on these factual premises:</div>
+                         ${g.premises.map((p) => {
+                           const v = p.verification || {};
+                           const stTone = statusBadgeClass(v.status);
+                           return `
+                             <div class="premise">
+                               <div class="premise-head">
+                                 <span class="badge ${stTone}">${escapeHtml(v.status || "unverified")}</span>
+                                 <span class="premise-text">${escapeHtml(p.text)}</span>
+                                 <span class="premise-score">${Math.round(v.score || 0)}</span>
+                               </div>
+                               ${renderEvidence(v.evidence)}
+                             </div>`;
+                         }).join("")}
+                       </div>`
+                    : `<p class="status">No publicly-verifiable premises were identified for this opinion.</p>`
+                }
+              </div>
+            </details>`;
+        }).join("")}
+      </div>
+    </div>`;
 }
 
 // One-word verdict → presentation headline. Kept distinct from the
@@ -614,6 +749,8 @@ async function runAssessment() {
     results.innerHTML = renderReport(report);
     results.classList.remove("hidden");
     setStatus("");
+    // Activate the segmented tabs (instant; picks the default pane).
+    setupResultTabs(results);
     // Staged-reveal: ring fills with gauge overshoot, sections stagger
     // in, reflection theater plays. Skip the theater if the API was
     // already slow — user has waited enough.

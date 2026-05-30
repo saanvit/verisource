@@ -1345,6 +1345,207 @@ footer { margin-top: auto; }
 .footer-inner .dot { color: var(--border-strong); }
 
 /* ============================================================
+ * Segmented results view (Overview / Claims / Evidence / Agent)
+ * ============================================================ */
+
+/* Sticky verdict hero — stays pinned while tab content scrolls. */
+.score-hero {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: sticky;
+  top: 256px;            /* sits just under the sticky hero */
+  z-index: 4;
+}
+.seg-btn {
+  flex: 1;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.seg-btn:hover { color: var(--text); background: var(--surface-hover); }
+.seg-btn.active {
+  color: var(--text);
+  background: var(--bg-elev-3);
+  box-shadow: 0 0 0 1px var(--border-strong), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+@media (max-width: 800px) {
+  .seg { flex-wrap: wrap; top: 0; position: static; }
+  .seg-btn { flex: 1 1 40%; }
+  .score-hero { position: static; }
+}
+
+.seg-panes { margin-top: 4px; }
+.seg-pane {
+  display: grid;
+  gap: 22px;
+}
+.seg-pane:not(.active) { display: none; }
+
+/* ----- Overview: compact signal strip ----- */
+
+.signal-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 700px) { .signal-strip { grid-template-columns: 1fr; } }
+.signal-tile {
+  background: linear-gradient(180deg, var(--bg-elev-2) 0%, var(--bg-elev-1) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.signal-tile-num {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+.signal-tile-denom {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  margin-left: 3px;
+}
+.signal-tile-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  margin-top: 4px;
+}
+.signal-tile-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.quiet-positive { color: var(--reliable); opacity: 0.8; }
+
+/* ----- Opinion grounding cards ----- */
+
+.opinion-block { display: grid; gap: 10px; }
+.opinion-intro {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.opinion-list { display: grid; gap: 10px; }
+.opinion {
+  background: linear-gradient(180deg, var(--bg-elev-2) 0%, var(--bg-elev-1) 100%);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.opinion[open] { box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.25), 0 6px 24px rgba(0, 0, 0, 0.3); }
+.opinion > summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.opinion > summary::-webkit-details-marker { display: none; }
+.opinion > summary:hover { background: var(--surface-hover); }
+.opinion-text { font-size: 14px; font-weight: 500; color: var(--text); line-height: 1.45; }
+.opinion-meta { display: inline-flex; align-items: center; gap: 10px; }
+.opinion-score {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  font-feature-settings: "tnum" 1;
+}
+.opinion-body { padding: 4px 16px 16px; display: grid; gap: 12px; }
+.opinion-stance {
+  margin: 0;
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--text-dim);
+  line-height: 1.55;
+  padding: 8px 12px;
+  background: var(--bg-elev-3);
+  border-radius: 6px;
+}
+.opinion-premises { display: grid; gap: 10px; }
+.opinion-premises-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.premise {
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+.premise-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+.premise-text { font-size: 13px; color: var(--text); line-height: 1.45; }
+.premise-score {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+/* ----- Adversarial robustness chip + query ----- */
+
+.robustness-chip { font-size: 10.5px; padding: 3px 8px; }
+.adv-query {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.adv-query em {
+  font-style: normal;
+  color: var(--text-dim);
+  background: var(--surface-hover);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* ============================================================
  * Reflection thinking skeleton (staged-reveal "Agent is reasoning…")
  * ============================================================ */
 

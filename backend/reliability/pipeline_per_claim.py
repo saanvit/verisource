@@ -31,6 +31,9 @@ Cost / latency (approximate per article with N claims):
 
 from __future__ import annotations
 
+import asyncio
+import os
+
 from backend.config import settings
 from backend.models import (
     ClaimVerification,
@@ -38,6 +41,7 @@ from backend.models import (
     CorroboratingSource,
     CrossReferenceResult,
     DomainReputation,
+    OpinionGrounding,
     ReflectionRound,
     ReliabilityReport,
 )
@@ -49,8 +53,15 @@ from backend.reliability.claims import (
 )
 from backend.reliability.content_extractor import ExtractedContent
 from backend.reliability.domain_reputation import lookup as lookup_domain
+from backend.reliability.opinions import ground_opinions, opinion_red_flags
 from backend.reliability.reflection import run_reflection_loop
 from backend.reliability.scorer import aggregate
+
+
+def _adversarial_enabled() -> bool:
+    """Adversarial retrieval is on by default for per-claim modes; set
+    ADVERSARIAL_RETRIEVAL=0 to disable (e.g. to save Tavily quota)."""
+    return (os.getenv("ADVERSARIAL_RETRIEVAL", "1").strip() or "1") not in ("0", "false", "no")
 
 
 def _aggregate_claims(
@@ -175,12 +186,27 @@ def _aggregate_claims(
 async def _run_through_verify(
     content: ExtractedContent,
     user_claim: str | None,
-) -> tuple[ContentAnalysis, list[str], list[ClaimVerification], str | None, DomainReputation]:
+    *,
+    adversarial: bool = False,
+    do_ground_opinions: bool = False,
+) -> tuple[
+    ContentAnalysis,
+    list[str],
+    list[ClaimVerification],
+    str | None,
+    DomainReputation,
+    list[OpinionGrounding],
+]:
     """Steps 1-3 of the per-claim pipeline, factored out so both the
     standard and the reflective variants can share the orchestration.
 
+    When ``adversarial`` is True, each claim is additionally stress-tested
+    against a falsification search. When ``do_ground_opinions`` is True,
+    the article's opinions are extracted and their factual premises
+    verified (a parallel track that does NOT feed the claim verifications).
+
     Returns ``(analysis, decomposed, verifications, exclude_domain,
-    domain_reputation)``.
+    domain_reputation, opinion_groundings)``.
     """
     domain = lookup_domain(content.url)
 
@@ -197,11 +223,19 @@ async def _run_through_verify(
         if user_claim.strip() not in decomposed:
             decomposed.insert(0, user_claim.strip())
 
-    # Step 3: verify each claim independently (Tavily + LLM NLI).
     exclude = domain_of(content.url)
-    verifications = await verify_all_claims(decomposed, exclude_domain=exclude)
 
-    return analysis, decomposed, verifications, exclude, domain
+    # Step 3 + 3b: verify claims, and (optionally) ground opinions. Run the
+    # two tracks concurrently — they're independent.
+    verify_task = verify_all_claims(decomposed, exclude_domain=exclude, adversarial=adversarial)
+    if do_ground_opinions:
+        opinions_task = ground_opinions(content, exclude_domain=exclude)
+        verifications, opinion_groundings = await asyncio.gather(verify_task, opinions_task)
+    else:
+        verifications = await verify_task
+        opinion_groundings = []
+
+    return analysis, decomposed, verifications, exclude, domain, opinion_groundings
 
 
 def _finalize_report(
@@ -212,13 +246,15 @@ def _finalize_report(
     decomposed: list[str],
     verifications: list[ClaimVerification],
     reflection_trace: list[ReflectionRound] | None = None,
+    opinion_groundings: list[OpinionGrounding] | None = None,
 ) -> ReliabilityReport:
     """Steps 4+ of the per-claim pipeline (aggregation + scorer).
 
     Extracted alongside ``_run_through_verify`` so the standard and
     reflective variants share the post-verification aggregation
     unchanged. Pass ``reflection_trace`` to attach the agent's audit
-    trail to ``ContentAnalysis`` for UI rendering.
+    trail and ``opinion_groundings`` to attach the opinion-grounding
+    track to ``ContentAnalysis`` for UI rendering.
     """
     factuality, xref, coverage, extra_flags = _aggregate_claims(verifications)
 
@@ -231,7 +267,22 @@ def _finalize_report(
         + 0.15 * analysis.sensationalism,
         1,
     )
-    merged_flags = list(dict.fromkeys(list(analysis.red_flags) + extra_flags))
+
+    # Robustness red flags: any claim the adversarial search refuted.
+    robustness_flags = [
+        f"Adversarial search surfaced contradicting evidence for the claim: "
+        f"\"{v.claim[:120]}\"."
+        for v in verifications
+        if getattr(v, "robustness_tag", None) == "refuted"
+    ]
+    # Opinion-grounding red flags: central opinions whose premises don't hold.
+    grounding_flags = opinion_red_flags(opinion_groundings or [])
+
+    merged_flags = list(
+        dict.fromkeys(
+            list(analysis.red_flags) + extra_flags + robustness_flags + grounding_flags
+        )
+    )
 
     updates: dict = {
         "score": new_content_score,
@@ -243,6 +294,8 @@ def _finalize_report(
     }
     if reflection_trace is not None:
         updates["reflection_trace"] = reflection_trace
+    if opinion_groundings is not None:
+        updates["opinion_groundings"] = opinion_groundings
 
     enriched = analysis.model_copy(update=updates)
     return aggregate(domain, enriched, xref, has_text=bool(content.text.strip()))
@@ -258,8 +311,18 @@ async def assess_per_claim(
     Signature is content-first (rather than request-first) so it can be
     composed with both the API route and the eval runner.
     """
-    analysis, decomposed, verifications, _exclude, domain = await _run_through_verify(
-        content, user_claim
+    (
+        analysis,
+        decomposed,
+        verifications,
+        _exclude,
+        domain,
+        opinion_groundings,
+    ) = await _run_through_verify(
+        content,
+        user_claim,
+        adversarial=_adversarial_enabled(),
+        do_ground_opinions=True,
     )
     return _finalize_report(
         content=content,
@@ -267,6 +330,7 @@ async def assess_per_claim(
         analysis=analysis,
         decomposed=decomposed,
         verifications=verifications,
+        opinion_groundings=opinion_groundings,
     )
 
 
@@ -289,8 +353,18 @@ async def assess_per_claim_reflective(
     calls per round, capped at ``max_rounds`` rounds (default 2). With
     OpenRouter promo credits this is negligible per-article.
     """
-    analysis, decomposed, verifications, exclude, domain = await _run_through_verify(
-        content, user_claim
+    (
+        analysis,
+        decomposed,
+        verifications,
+        exclude,
+        domain,
+        opinion_groundings,
+    ) = await _run_through_verify(
+        content,
+        user_claim,
+        adversarial=_adversarial_enabled(),
+        do_ground_opinions=True,
     )
 
     verifications, trace = await run_reflection_loop(
@@ -318,6 +392,7 @@ async def assess_per_claim_reflective(
         decomposed=merged_claims,
         verifications=verifications,
         reflection_trace=trace,
+        opinion_groundings=opinion_groundings,
     )
 
 

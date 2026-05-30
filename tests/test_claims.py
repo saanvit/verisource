@@ -172,9 +172,13 @@ def test_pipeline_with_mocked_llm_and_search(monkeypatch):
         return ["Claim A is factual.", "Claim B is also factual."]
 
     async def fake_verify_all_claims(
-        claims_list: list[str], *, exclude_domain: str | None = None, concurrency: int = 4
+        claims_list: list[str], *, exclude_domain: str | None = None,
+        concurrency: int = 4, adversarial: bool = False,
     ) -> list[ClaimVerification]:
         return [_v(c, 88.0, "supported", n_evidence=3, high=2) for c in claims_list]
+
+    async def fake_ground_opinions(content, *, exclude_domain=None):
+        return []
 
     async def fake_analyze(content: ExtractedContent) -> ContentAnalysis:
         return ContentAnalysis(
@@ -191,6 +195,7 @@ def test_pipeline_with_mocked_llm_and_search(monkeypatch):
 
     monkeypatch.setattr(pcm, "decompose_claims", fake_decompose)
     monkeypatch.setattr(pcm, "verify_all_claims", fake_verify_all_claims)
+    monkeypatch.setattr(pcm, "ground_opinions", fake_ground_opinions)
     monkeypatch.setattr(pcm, "analyze_content", fake_analyze)
 
     content = ExtractedContent(
@@ -214,9 +219,12 @@ def test_pipeline_falls_back_to_legacy_claims_when_decompose_empty(monkeypatch):
     async def fake_decompose(content: ExtractedContent) -> list[str]:
         return []  # No LLM key, or model returned junk.
 
-    async def fake_verify_all(claims_list, *, exclude_domain=None, concurrency=4):
+    async def fake_verify_all(claims_list, *, exclude_domain=None, concurrency=4, adversarial=False):
         assert claims_list == ["legacy-claim-one"]
         return [_v(claims_list[0], 75.0, "supported")]
+
+    async def fake_ground_opinions(content, *, exclude_domain=None):
+        return []
 
     async def fake_analyze(content):
         return ContentAnalysis(
@@ -227,6 +235,7 @@ def test_pipeline_falls_back_to_legacy_claims_when_decompose_empty(monkeypatch):
 
     monkeypatch.setattr(pcm, "decompose_claims", fake_decompose)
     monkeypatch.setattr(pcm, "verify_all_claims", fake_verify_all)
+    monkeypatch.setattr(pcm, "ground_opinions", fake_ground_opinions)
     monkeypatch.setattr(pcm, "analyze_content", fake_analyze)
 
     content = ExtractedContent(
