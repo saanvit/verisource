@@ -1,4 +1,4 @@
-/* Source Reliability Assessor — frontend logic. */
+/* VeriSource — frontend logic. */
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -16,16 +16,104 @@ function setupTabs() {
   });
 }
 
+function selectMode(mode) {
+  state.mode = mode;
+  $$(".mode").forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-checked", on ? "true" : "false");
+  });
+}
+
 function setupModeToggle() {
   $$(".mode").forEach((btn) => {
+    btn.addEventListener("click", () => selectMode(btn.dataset.mode));
+  });
+}
+
+// Curated demo inputs. Each prefills the paste-text field, picks the mode
+// that best shows the feature, and auto-runs — so the product is instantly
+// demonstrable without a grader bringing their own URL. Text (not URLs) so
+// they always work offline-of-paywalls and never 404.
+const EXAMPLES = [
+  {
+    label: "Wire report",
+    hint: "reliable",
+    mode: "per-claim",
+    text:
+      "The European Central Bank cut its key interest rate by 25 basis points on " +
+      "Thursday, lowering the deposit rate to 3.25%, the central bank said in a " +
+      "statement. It was the third cut this year. ECB President Christine Lagarde " +
+      "said inflation in the euro area had eased to 1.7% in September, below the " +
+      "bank's 2% target for the first time since 2021. The decision was widely " +
+      "expected by economists polled ahead of the meeting.",
+  },
+  {
+    label: "Opinion column",
+    hint: "mixed",
+    mode: "per-claim",
+    text:
+      "The city's new congestion charge is a disaster that will hollow out small " +
+      "businesses downtown. Foot traffic has already collapsed since the toll went " +
+      "live, and every shop owner I know says revenue is down. Politicians claim the " +
+      "scheme reduces emissions, but the real motive is simply to squeeze more money " +
+      "out of ordinary commuters who have no other way to get to work.",
+  },
+  {
+    label: "Viral health claim",
+    hint: "questionable",
+    mode: "per-claim-reflective",
+    text:
+      "BREAKING: Scientists have FINALLY admitted that drinking celery juice every " +
+      "morning cures type 2 diabetes in just two weeks — no medication needed. Big " +
+      "Pharma has been hiding this miracle cure for decades because they make " +
+      "billions keeping you sick. Doctors HATE this simple trick. Share before they " +
+      "take this down!",
+  },
+];
+
+const HINT_TONE = { reliable: "green", mixed: "yellow", questionable: "orange" };
+
+function setupExamples() {
+  const wrap = $("#exampleChips");
+  if (!wrap) return;
+  wrap.innerHTML = EXAMPLES.map(
+    (ex, i) => `
+      <button type="button" class="example-chip" data-ex="${i}">
+        <span class="example-chip-label">${escapeHtml(ex.label)}</span>
+        <span class="badge ${HINT_TONE[ex.hint] || "outline"} example-chip-hint">${escapeHtml(ex.hint)}</span>
+      </button>`
+  ).join("");
+  wrap.querySelectorAll(".example-chip").forEach((btn) => {
     btn.addEventListener("click", () => {
-      state.mode = btn.dataset.mode;
-      $$(".mode").forEach((b) => {
-        const on = b === btn;
-        b.classList.toggle("active", on);
-        b.setAttribute("aria-checked", on ? "true" : "false");
-      });
+      const ex = EXAMPLES[Number(btn.dataset.ex)];
+      if (!ex) return;
+      // Switch to the paste-text tab and fill it.
+      state.activeTab = "text";
+      $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "text"));
+      $$(".tab-pane").forEach((p) => p.classList.toggle("active", p.dataset.pane === "text"));
+      $("#text").value = ex.text;
+      $("#url").value = "";
+      $("#claim").value = "";
+      selectMode(ex.mode);
+      runAssessment();
     });
+  });
+}
+
+function setupHowItWorks() {
+  const dialog = $("#howItWorks");
+  const openBtn = $("#howItWorksBtn");
+  const closeBtn = $("#howClose");
+  if (!dialog || !openBtn) return;
+  openBtn.addEventListener("click", () => {
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+  });
+  closeBtn?.addEventListener("click", () => dialog.close());
+  // Click on the backdrop (the dialog element itself, outside .how-inner) closes.
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
   });
 }
 
@@ -34,8 +122,11 @@ async function loadHealth() {
   try {
     const resp = await fetch("/api/health");
     const data = await resp.json();
+    // Friendly short name for the active model, e.g.
+    // "anthropic/claude-sonnet-4.6" → "claude-sonnet-4.6".
+    const modelShort = data.model ? String(data.model).split("/").pop() : "";
     const llm = data.llm_configured
-      ? `<span class="ok">LLM ●</span>`
+      ? `<span class="ok">LLM ●</span>${modelShort ? ` <span class="health-model">${escapeHtml(modelShort)}</span>` : ""}`
       : `<span class="warn">LLM ○ heuristic</span>`;
     const search = data.search_configured
       ? `<span class="ok">Search ●</span>`
@@ -302,7 +393,7 @@ function renderClaimVerifications(verifications, coverage) {
   const meta =
     coverage == null
       ? `${verifications.length} claims`
-      : `${verifications.length} claims · ${(coverage * 100).toFixed(0)}% coverage`;
+      : `${verifications.length} claims · <span class="term" title="Share of claims we could find independent evidence for.">${(coverage * 100).toFixed(0)}% verified</span>`;
   return `
     <div>
       <div class="section-title">
@@ -425,7 +516,13 @@ function listOrNone(items, cls, emptyMsg = "None detected.") {
 // the giant score ring.
 function heroSummary(explanation) {
   if (!explanation) return "";
-  return explanation.replace(/^This source is [^.]+\.\s*/i, "").trim();
+  // Strip the leading "This source is <verdict> (NN.N/100). " sentence so the
+  // headline doesn't duplicate the score ring. Must match through the
+  // "(score/100)." prefix — a naive "up to first period" breaks on the
+  // decimal point in the score (e.g. "62.6/100" → stray "6/100).").
+  return explanation
+    .replace(/^This source is [^.]*\([\d.]+\/100\)\.\s*/i, "")
+    .trim();
 }
 
 function renderReport(report) {
@@ -612,17 +709,17 @@ function renderSignalStrip(report) {
   const ca = report.content_analysis || {};
   const xref = report.cross_reference || {};
   const dom = report.domain_reputation || {};
-  const tile = (label, score, weight, sub) => `
+  const tile = (label, tip, score, weight, sub) => `
     <div class="signal-tile">
       <div class="signal-tile-num" style="color:${scoreColor(Math.round(score))}">${Math.round(score)}<span class="signal-tile-denom">/100</span></div>
-      <div class="signal-tile-label">${escapeHtml(label)}</div>
+      <div class="signal-tile-label"><span class="term" title="${escapeHtml(tip)}">${escapeHtml(label)}</span></div>
       <div class="signal-tile-sub">${escapeHtml(sub)} · ${(weight * 100).toFixed(0)}% weight</div>
     </div>`;
   return `
     <div class="signal-strip" data-reveal="sub-cards">
-      ${tile("Domain prior", dom.score || 0, w.domain || 0, dom.type || "unknown")}
-      ${tile("Content", ca.score || 0, w.content || 0, "LLM analysis")}
-      ${tile("Cross-reference", xref.score || 0, w.cross_reference || 0, (xref.consensus || "no-data").replaceAll("-", " "))}
+      ${tile("Source reputation", "Domain-reputation prior from a curated outlet database, with TLD fallbacks.", dom.score || 0, w.domain || 0, dom.type || "unknown")}
+      ${tile("Content", "LLM judgment of factuality, objectivity, transparency and sensationalism.", ca.score || 0, w.content || 0, "LLM analysis")}
+      ${tile("Cross-reference", "Independent corroboration: each claim checked against outside sources.", xref.score || 0, w.cross_reference || 0, (xref.consensus || "no-data").replaceAll("-", " "))}
     </div>`;
 }
 
@@ -723,14 +820,9 @@ async function runAssessment() {
 
   const btn = $("#run");
   btn.disabled = true;
-  setStatus(
-    state.mode === "per-claim-reflective"
-      ? "Decomposing, verifying, then running Claude critique + auto-corrections…"
-      : state.mode === "per-claim"
-      ? "Decomposing claims, retrieving evidence, scoring each independently…"
-      : "Fetching, analyzing with the LLM, and cross-referencing…"
-  );
-  $("#results").classList.add("hidden");
+  setStatus("");
+  hidePlaceholder();
+  const stopLoading = showLoading(state.mode);
 
   const reqStart = performance.now();
   try {
@@ -745,6 +837,7 @@ async function runAssessment() {
     }
     const report = await resp.json();
     const apiDurationMs = performance.now() - reqStart;
+    stopLoading();
     const results = $("#results");
     results.innerHTML = renderReport(report);
     results.classList.remove("hidden");
@@ -761,10 +854,109 @@ async function runAssessment() {
       });
     }
   } catch (e) {
-    setStatus(`Error: ${e.message}`, "err");
+    stopLoading();
+    const results = $("#results");
+    results.innerHTML = renderErrorCard(e.message);
+    results.classList.remove("hidden");
+    setStatus("");
+    wireErrorRecovery(results);
   } finally {
     btn.disabled = false;
   }
+}
+
+function hidePlaceholder() {
+  const p = $("#placeholder");
+  if (p) p.style.display = "none";
+}
+
+// Staged loading affordance shown in the results area during the wait, so
+// the 10–30s feels intentional. Steps advance on a timer and hold on the
+// last step until the response lands. Returns a stop() that clears it.
+const LOADING_STEPS = {
+  default: ["Fetching article", "Analyzing content", "Cross-referencing", "Scoring"],
+  "per-claim": ["Extracting claims", "Retrieving evidence", "Checking stances", "Scoring"],
+  "per-claim-reflective": [
+    "Extracting claims",
+    "Retrieving evidence",
+    "Checking stances",
+    "Agent self-critique",
+    "Scoring",
+  ],
+};
+
+function showLoading(mode) {
+  const steps = LOADING_STEPS[mode] || LOADING_STEPS["per-claim"];
+  const results = $("#results");
+  results.innerHTML = `
+    <div class="loading-card" aria-live="polite">
+      <div class="loading-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
+      <ol class="loading-steps">
+        ${steps
+          .map((s, i) => `<li class="loading-step${i === 0 ? " active" : ""}" data-step="${i}">${escapeHtml(s)}</li>`)
+          .join("")}
+      </ol>
+    </div>`;
+  results.classList.remove("hidden");
+
+  let i = 0;
+  const lis = results.querySelectorAll(".loading-step");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const timer = reduced
+    ? null
+    : setInterval(() => {
+        if (i >= lis.length - 1) return; // hold on last step
+        lis[i].classList.remove("active");
+        lis[i].classList.add("done");
+        i += 1;
+        lis[i].classList.add("active");
+      }, 2600);
+
+  return function stop() {
+    if (timer) clearInterval(timer);
+  };
+}
+
+// Map a raw error message to a designed, recoverable error card.
+function renderErrorCard(message) {
+  const msg = String(message || "");
+  let title = "Something went wrong";
+  let body = escapeHtml(msg) || "An unexpected error occurred.";
+  let recover = "";
+  if (/failed to fetch|networkerror|load failed|unreachable/i.test(msg)) {
+    title = "Can't reach the server";
+    body = "VeriSource isn't responding. Make sure the backend is running on port 8000, then try again.";
+  } else if (/extract|fetch|could not read|empty|paywall|403|404|timed out|timeout/i.test(msg)) {
+    title = "Couldn't read that article";
+    body = "The page may be paywalled, blocked, or empty. Paste the article text instead and re-run.";
+    recover = `<button type="button" class="how-btn error-recover" data-recover="paste">Switch to paste text</button>`;
+  }
+  return `
+    <div class="error-card">
+      <span class="error-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M12 9v4M12 17v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M10.3 3.86 2.07 18a2 2 0 0 0 1.73 3h16.4a2 2 0 0 0 1.73-3L13.7 3.86a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <div class="error-body">
+        <h3>${escapeHtml(title)}</h3>
+        <p>${body}</p>
+        ${recover}
+      </div>
+    </div>`;
+}
+
+function wireErrorRecovery(root) {
+  const btn = root.querySelector('[data-recover="paste"]');
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    state.activeTab = "text";
+    $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "text"));
+    $$(".tab-pane").forEach((p) => p.classList.toggle("active", p.dataset.pane === "text"));
+    root.classList.add("hidden");
+    $("#text").focus();
+  });
 }
 
 function setStatus(msg, kind = "") {
@@ -776,6 +968,8 @@ function setStatus(msg, kind = "") {
 window.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupModeToggle();
+  setupExamples();
+  setupHowItWorks();
   loadHealth();
   $("#run").addEventListener("click", runAssessment);
   $("#url").addEventListener("keydown", (e) => {

@@ -48,11 +48,20 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health() -> dict[str, object]:
+    provider = settings.llm_provider
+    active_model = (
+        settings.openrouter_model
+        if provider == "openrouter"
+        else settings.mistral_model
+        if provider == "mistral"
+        else None
+    )
     return {
         "status": "ok",
         "llm_configured": settings.has_llm,
         "search_configured": settings.has_search,
-        "model": settings.mistral_model if settings.has_llm else None,
+        "provider": provider,
+        "model": active_model,
         "default_mode": "per-claim",
         "modes": ["default", "per-claim", "per-claim-reflective"],
     }
