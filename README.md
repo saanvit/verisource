@@ -1,9 +1,15 @@
-# Source Reliability Assessor
+# VeriSource — Evidence · Triangulation · Reliability
 
-An LLM-powered tool that evaluates how reliable a news article or written
-source is. Given a URL or pasted text, it produces a 0-100 reliability score,
-a verdict (`highly-reliable` → `unreliable`), and a structured breakdown of
-the evidence.
+VeriSource is an LLM-powered tool that evaluates how reliable a news article or
+written source is. Given a URL or pasted text, it decomposes the article into
+atomic claims, checks each against independent web sources, and produces a 0-100
+reliability score, a verdict (`highly-reliable` → `unreliable`), and a structured
+breakdown of the evidence.
+
+It ships three analysis depths — **Quick** (single-shot whole-article judgment),
+**Standard** (per-claim decomposition + retrieval), and **Deep** (adds a
+self-critique agent that audits and fixes its own verifications) — plus a
+fine-tuned local NLI stance labeler and an isotonic score calibrator.
 
 ## How reliability is assessed
 
@@ -15,17 +21,18 @@ Three independent signals are computed and combined:
    Check, Ad Fontes, and AllSides. Falls back to TLD priors (`.gov`, `.edu`,
    `.ac.uk`) and finally a neutral prior.
 2. **Content analysis** (`backend/reliability/analyzer.py`). The article is
-   sent to **Mistral** with a strict-JSON system prompt that scores
-   factuality, objectivity, transparency, and sensationalism-restraint, and
-   extracts main claims and red flags. If the LLM is unavailable, a
-   deterministic lexical heuristic is used as a fallback.
-3. **Cross-reference** (`backend/reliability/cross_reference.py`). The
-   article's main claim (or a user-supplied claim) is searched on the open
-   web via **Tavily**, excluding the original domain. The LLM labels each
-   independent hit as *supports / contradicts / unclear*; hits are weighted
-   by their own domain reputation to produce a corroboration score and a
-   consensus label (`strong-support`, `weak-support`, `mixed`,
-   `contradicts`, `no-data`).
+   sent to the configured **LLM** — Anthropic Claude (via OpenRouter) by
+   default, with **Mistral** as a fallback — using a strict-JSON system prompt
+   that scores factuality, objectivity, transparency, and
+   sensationalism-restraint, and extracts main claims and red flags. If no LLM
+   is configured, a deterministic lexical heuristic is used as a fallback.
+3. **Cross-reference** (`backend/reliability/cross_reference.py` /
+   `backend/reliability/claims.py`). Each claim (or a user-supplied claim) is
+   searched on the open web via **Tavily**, excluding the original domain.
+   Hits are stance-labeled *supports / contradicts / unclear* — by the LLM, or
+   by a fine-tuned local NLI model (`NLI_BACKEND=local`) — and weighted by
+   their own domain reputation to produce a corroboration score and a consensus
+   label (`strong-support`, `weak-support`, `mixed`, `contradicts`, `no-data`).
 
 The three signals are fused (`backend/reliability/scorer.py`) with **dynamic
 weights** — when one channel has weak evidence (unknown domain, no text, no
@@ -47,19 +54,34 @@ cs153project/
 │   ├── reliability/
 │   │   ├── content_extractor.py      trafilatura/BS4 extraction
 │   │   ├── domain_reputation.py      curated prior lookup
-│   │   ├── analyzer.py               Mistral content analysis
-│   │   ├── cross_reference.py        Tavily + LLM corroboration
+│   │   ├── analyzer.py               LLM content analysis
+│   │   ├── llm_client.py             OpenRouter (Claude) → Mistral routing
+│   │   ├── claims.py                 atomic-claim decomposition + stance labeling
+│   │   ├── pipeline_per_claim.py     per-claim orchestration
+│   │   ├── reflection.py             self-critique agent loop
+│   │   ├── opinions.py               opinion grounding (premise verification)
+│   │   ├── nli.py                    local fine-tuned NLI stance labeler
+│   │   ├── cross_reference.py        single-shot corroboration (Quick mode)
+│   │   ├── calibration.py            isotonic (PAV) score calibration
 │   │   └── scorer.py                 weighted fusion → final report
-│   └── search/
-│       └── web_search.py             Tavily client
+│   ├── search/
+│   │   └── web_search.py             Tavily client
+│   └── eval/                         evaluation harness (metrics, datasets, runner)
 ├── frontend/
 │   ├── index.html                    single-page UI
-│   ├── styles.css
-│   └── app.js
+│   ├── styles.css                    VeriSource brand identity
+│   ├── app.js                        UI logic + API calls
+│   └── reveal.js                     staged-reveal animation orchestrator
+├── training/                         NLI fine-tune, calibration fit, benchmark builders
 ├── data/
-│   └── domain_reputation.json        curated reputation DB
+│   ├── domain_reputation.json        curated reputation DB
+│   └── eval/                         labeled benchmark datasets
+├── models/
+│   ├── nli/                          fine-tuned DeBERTa checkpoint
+│   └── calibration/                  fitted isotonic calibrators
 ├── tests/                            pytest unit tests
 ├── requirements.txt
+├── requirements-nli.txt
 ├── .env.example
 └── README.md
 ```
@@ -74,11 +96,15 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Edit .env and add MISTRAL_API_KEY and TAVILY_API_KEY
+# Edit .env and add an LLM key + a search key:
+#   OPENROUTER_API_KEY  (preferred; Claude Sonnet via OpenRouter)
+#   MISTRAL_API_KEY     (fallback LLM, used only if OpenRouter is unset)
+#   TAVILY_API_KEY      (web search / cross-reference)
 ```
 
-Both keys are optional — without them the app still runs:
-* No `MISTRAL_API_KEY`: content analysis falls back to a lexical heuristic.
+The keys are optional — without them the app still runs, degraded:
+* No LLM key (`OPENROUTER_API_KEY` / `MISTRAL_API_KEY`): content analysis falls
+  back to a lexical heuristic.
 * No `TAVILY_API_KEY`: cross-reference is skipped (its weight goes to 0).
 
 ## Run
@@ -108,11 +134,17 @@ Returns whether the LLM and search are configured.
 Either `url` or `text` is required. The optional `?mode=` query parameter
 selects which pipeline to run:
 
-* `mode=per-claim` (default) — atomic-claim decomposition + per-claim
-  retrieval and stance labeling. Returns a richer report including
+* `mode=per-claim` (default) — **Standard** depth. Atomic-claim decomposition +
+  per-claim retrieval and stance labeling. Returns a richer report including
   `content_analysis.claim_verifications` and `content_analysis.coverage`.
-* `mode=default` — legacy pipeline (single-shot analyzer + one
-  cross-reference search).
+* `mode=per-claim-reflective` — **Deep** depth. The per-claim pipeline wrapped
+  in a self-critique agent loop that audits and fixes its own verifications;
+  adds `content_analysis.reflection_trace`.
+* `mode=default` — **Quick** depth. Single-shot analyzer + one cross-reference
+  search.
+
+(The frontend surfaces these as the **Quick / Standard / Deep** analysis-depth
+toggle.)
 
 Returns a `ReliabilityReport`:
 
@@ -517,11 +549,15 @@ the 1 decomposition call to the API.
 
 ## Compute requirements
 
-* **No GPU required.** All heavy lifting runs on hosted APIs (Mistral,
-  Tavily). The local server is I/O-bound.
-* **Memory:** the FastAPI process uses well under 200 MB.
-* **Latency:** a typical assessment takes 10-30 seconds end-to-end (one
-  article fetch + 1-2 LLM calls + one search call).
+* **Serving needs no GPU.** With the default LLM stance backend, all heavy
+  lifting runs on hosted APIs (OpenRouter/Claude, Mistral, Tavily) and the local
+  server is I/O-bound. Running the local NLI labeler (`NLI_BACKEND=local`) works
+  on CPU (~250 ms/hit) and is much faster on GPU (~50 ms/hit).
+* **Fine-tuning the NLI model uses a GPU** — the shipped checkpoint is a
+  DeBERTa-v3 fine-tuned on FEVER + VitaminC (see *Local NLI stance labeler*).
+* **Memory:** the FastAPI process uses well under 200 MB (LLM backend).
+* **Latency:** a typical assessment takes ~10 s (Quick) to ~30 s (Deep)
+  end-to-end.
 
 ## Limitations
 
@@ -531,3 +567,63 @@ the 1 decomposition call to the API.
   claim, especially for nuanced policy/scientific claims. Use the
   per-source labels as hints, not ground truth.
 * No author or publication-date verification is performed.
+
+## AI usage disclosure
+
+Per the course AI policy, this section documents where and how AI tools were
+used in this project.
+
+**AI as a runtime component (the product itself).** VeriSource's analysis
+pipeline calls large language models at inference time: claim decomposition,
+content analysis, stance labeling (in the default `llm` backend), opinion
+extraction, adversarial-query generation, and the self-critique agent all run
+on **Anthropic Claude** (via OpenRouter; `anthropic/claude-opus-4.8` by
+default) with **Mistral** as a fallback. Web evidence retrieval uses the
+**Tavily** search API. These are core to how the system works and are
+documented throughout this README.
+
+**AI as a development tool.** AI coding assistants (**Claude Code** /
+Anthropic Claude) were used during development to help implement and refactor
+parts of the backend pipeline, the frontend UI, the evaluation harness, and
+this documentation. All architectural decisions, the scoring/fusion design,
+the experimental setup, and the final review of generated code were directed
+and verified by the author. <!-- TODO(author): adjust this paragraph to
+accurately reflect your own usage — e.g. which parts you wrote by hand vs.
+with assistance. -->
+
+No part of the evaluation numbers reported here was generated or fabricated by
+an LLM — all metrics come from running the eval harness (`backend/eval/`) over
+labeled data.
+
+## Citations, data sources & acknowledgements
+
+This project builds on the following external data, models, and libraries.
+
+**Domain-reputation data** (`data/domain_reputation.json`) is curated from:
+* Media Bias/Fact Check — <https://mediabiasfactcheck.com/>
+* Ad Fontes Media (Media Bias Chart) — <https://adfontesmedia.com/>
+* AllSides Media Bias Ratings — <https://www.allsides.com/media-bias>
+
+**Models:**
+* `microsoft/deberta-v3-base` — He et al., *DeBERTaV3* (2021), the base model
+  fine-tuned for the local NLI stance labeler.
+* `MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli` — the off-the-shelf
+  NLI checkpoint used when no fine-tuned `NLI_MODEL` is set.
+* Anthropic Claude (Opus/Sonnet) and Mistral — hosted LLMs used at inference.
+
+**Datasets** (NLI fine-tuning + evaluation):
+* **FEVER** — Thorne et al., *FEVER: a Large-scale Dataset for Fact Extraction
+  and VERification* (NAACL 2018).
+* **VitaminC** — Schuster et al., *Get Your Vitamin C! Robust Fact Verification
+  with Contrastive Evidence* (NAACL 2021).
+* **GonzaloA/fake_news** (HuggingFace; ISOT-derived) — used as a public
+  source-classification benchmark.
+
+**Key libraries:** FastAPI, Hugging Face `transformers`, `trafilatura`,
+scikit-learn (isotonic regression reference), Tavily SDK. See
+`requirements.txt` / `requirements-nli.txt` for the full list.
+
+This project was built from scratch for CS 153; it does not fork or
+substantially borrow code from an existing repository. <!-- TODO(author): if
+you did start from any template/repo, cite it here with a description of your
+changes. -->
