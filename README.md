@@ -6,10 +6,27 @@ atomic claims, checks each against independent web sources, and produces a 0-100
 reliability score, a verdict (`highly-reliable` → `unreliable`), and a structured
 breakdown of the evidence.
 
-It ships three analysis depths — **Quick** (single-shot whole-article judgment),
-**Standard** (per-claim decomposition + retrieval), and **Deep** (adds a
-self-critique agent that audits and fixes its own verifications) — plus a
-fine-tuned local NLI stance labeler and an isotonic score calibrator.
+It ships three analysis depths for whole articles — **Quick** (single-shot
+whole-article judgment), **Standard** (per-claim decomposition + retrieval), and
+**Deep** (adds a self-critique agent that audits and fixes its own
+verifications) — plus a fine-tuned local NLI stance labeler and an isotonic
+score calibrator.
+
+It also ships two focused verification tools built on the same engine:
+
+* **Check a claim** — paste a single claim, headline, or tweet (no article
+  needed). VeriSource retrieves independent evidence, labels each source's
+  stance, and stress-tests the claim with an *adversarial* falsification
+  search. Evaluated end-to-end on the **LIAR** claim-verification benchmark
+  (see [Evaluation](#claim-verification-liar)).
+* **Citation audit** — paste an article URL. For every source the article
+  links to, VeriSource fetches that source and checks whether it actually
+  supports the sentence citing it — catching mislinked, misread, or
+  hallucinated citations that source-level scoring misses entirely.
+
+**Project docs:** [Evaluation & failure analysis](docs/EVALUATION.md) ·
+[Demo video script](docs/VIDEO_SCRIPT.md) · AI-usage disclosure and citations
+are at the [bottom of this README](#ai-usage-disclosure).
 
 ## How reliability is assessed
 
@@ -142,9 +159,17 @@ selects which pipeline to run:
   adds `content_analysis.reflection_trace`.
 * `mode=default` — **Quick** depth. Single-shot analyzer + one cross-reference
   search.
+* `mode=claim-check` — **Check a claim**. Verifies the standalone `claim` field
+  (no `url`/`text` needed) with retrieval + stance labeling + an adversarial
+  falsification search. The single `ClaimVerification` drives the report.
+* `mode=citation-audit` — **Citation audit**. Takes a `url` (or HTML `text`),
+  extracts the article's in-prose out-links, fetches each, and labels whether
+  the cited source supports its citing sentence. `overall_score` is the
+  citation-integrity rate (share of citations whose source supports them).
 
-(The frontend surfaces these as the **Quick / Standard / Deep** analysis-depth
-toggle.)
+(The frontend surfaces the first three as the **Quick / Standard / Deep**
+analysis-depth toggle, and the last two as the **Check a claim** and
+**Citation audit** tools.)
 
 Returns a `ReliabilityReport`:
 
@@ -309,6 +334,68 @@ python -m backend.eval \
     --dataset jsonl --path data/eval/gonzaloa_test_500.jsonl \
     --limit 50 --pipeline per-claim --concurrency 6 \
     --output baseline_gonzaloa_50_perclaim.json
+```
+
+### Claim verification (LIAR)
+
+The benchmarks above test *source classification* on stylistic fake-news
+data. The **Check a claim** tool is instead designed for *claim
+verifiability*, so it is evaluated on **LIAR** (PolitiFact short statements),
+binarized to reliable/unreliable. This is the claim-verifiability experiment
+the section above anticipated. We compare three configurations on the same
+claims (n=60), and the result doubles as an **ablation** of adversarial
+retrieval:
+
+| config                                   | n  | accuracy | macro-F1 | ROC-AUC |
+| ---------------------------------------- | -- | -------- | -------- | ------- |
+| **Claim-check (retrieval + adversarial)**| 60 | **0.650**| **0.619**| **0.659** |
+| Claim-check, no adversarial (ablation)   | 60 | 0.483    | 0.326    | 0.466   |
+| Zero-shot LLM baseline ("is this true?") | 60 | 0.483    | 0.326    | 0.500   |
+
+The headline finding: **adversarial retrieval is what gives the tool its
+discriminative power.** Without it — and likewise for the plain zero-shot
+LLM — the model collapses to predicting "reliable" for nearly everything
+(recall-reliable ≈ 1.0, recall-unreliable ≈ 0). The deliberate falsification
+search is what surfaces the contradicting evidence that catches false claims,
+lifting accuracy +0.17 and macro-F1 +0.29 over the zero-shot baseline. LIAR
+is a hard benchmark (many statements are opinion-laden or context-dependent),
+so 0.65 with retrieval is a meaningful, honest result rather than a ceiling.
+
+Reproduce (requires LLM + Tavily keys; LIAR loads via `datasets<3`, which
+still supports script datasets):
+
+```bash
+pip install "datasets==2.21.0"
+python -m training.build_benchmark --dataset liar --split test --n 150 \
+    --out data/eval/liar_dev.jsonl
+python -m training.eval_claim_check --path data/eval/liar_dev.jsonl \
+    --limit 60 --concurrency 6 --out eval_claim_check_liar.json
+```
+
+### Citation audit (synthetic)
+
+There is no off-the-shelf labeled corpus for "does a cited source support the
+sentence citing it," so the **Citation audit** stance step is evaluated on a
+small synthetic benchmark: each citing sentence is paired once with a source
+that supports it (positive) and once with a *mismatched* source from a
+different fact (negative — a mislinked citation). The task is to flag the
+unsupported ones.
+
+| metric (detect UNSUPPORTED citations) | n  | precision | recall | F1   |
+| ------------------------------------- | -- | --------- | ------ | ---- |
+| Citation-audit stance labeler (LLM)   | 24 | 1.00      | 1.00   | 1.00 |
+
+The labeler perfectly separates supporting from clearly-mismatched sources.
+This validates the mechanism but is an *easy* setting by construction — the
+negatives are off-topic, not subtle near-misses. Harder negatives (a source
+that is on-topic but doesn't support the specific assertion) are the natural
+next benchmark.
+
+Reproduce:
+
+```bash
+python -m training.build_citation_benchmark   # no keys needed to build
+python -m training.eval_citation_audit --out eval_citation_audit.json
 ```
 
 ## Per-claim verification pipeline
@@ -585,11 +672,16 @@ documented throughout this README.
 **AI as a development tool.** AI coding assistants (**Claude Code** /
 Anthropic Claude) were used during development to help implement and refactor
 parts of the backend pipeline, the frontend UI, the evaluation harness, and
-this documentation. All architectural decisions, the scoring/fusion design,
-the experimental setup, and the final review of generated code were directed
-and verified by the author. <!-- TODO(author): adjust this paragraph to
-accurately reflect your own usage — e.g. which parts you wrote by hand vs.
-with assistance. -->
+this documentation. This includes the two focused verification tools — **Check
+a claim** (`pipeline_claim_check.py`) and **Citation audit**
+(`citation_audit.py`) — together with their benchmarks and eval drivers
+(`training/build_benchmark.py` LIAR loader, `training/eval_claim_check.py`,
+`training/build_citation_benchmark.py`, `training/eval_citation_audit.py`) and
+a fix capping LLM `max_tokens` in `llm_client.py`. All architectural
+decisions, the scoring/fusion design, the experimental setup, and the final
+review of generated code were directed and verified by the author. <!--
+TODO(author): adjust this paragraph to accurately reflect your own usage —
+e.g. which parts you wrote by hand vs. with assistance. -->
 
 No part of the evaluation numbers reported here was generated or fabricated by
 an LLM — all metrics come from running the eval harness (`backend/eval/`) over
@@ -618,6 +710,9 @@ This project builds on the following external data, models, and libraries.
   with Contrastive Evidence* (NAACL 2021).
 * **GonzaloA/fake_news** (HuggingFace; ISOT-derived) — used as a public
   source-classification benchmark.
+* **LIAR** — Wang, *"Liar, Liar Pants on Fire": A New Benchmark Dataset for
+  Fake News Detection* (ACL 2017) — PolitiFact short statements, used
+  (binarized) as the claim-verifiability benchmark for the Check-a-claim tool.
 
 **Key libraries:** FastAPI, Hugging Face `transformers`, `trafilatura`,
 scikit-learn (isotonic regression reference), Tavily SDK. See

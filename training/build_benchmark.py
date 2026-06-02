@@ -162,10 +162,69 @@ def _load_mrm8488(split: str, max_chars: int) -> list[dict]:
     return out
 
 
+# LIAR 6-way truthfulness → binary. half-true counts as reliable so the
+# split is balanced 3/3 across the original labels (matches the project's
+# reliable/unreliable framing where "mostly accurate" reads as reliable).
+_LIAR_RELIABLE = {"true", "mostly-true", "half-true"}
+
+
+def _load_liar(split: str, max_chars: int) -> list[dict]:
+    """LIAR claim-verification benchmark (short political statements).
+
+    Unlike the ISOT-style article datasets, LIAR is a *claim*-level corpus:
+    each row is a single short statement with a PolitiFact truthfulness
+    label. This is the benchmark the claim-check pipeline is designed for
+    (retrieval + stance on a standalone claim), so the statement is stored
+    as both ``text`` (to satisfy the eval schema) and ``claim`` (what the
+    claim-check pipeline verifies). No 80-char article filter is applied.
+    """
+    from datasets import load_dataset
+
+    try:
+        ds = load_dataset("ucsbnlp/liar", split=split)
+    except Exception:  # pragma: no cover - fall back to legacy id / remote code
+        ds = load_dataset("liar", split=split, trust_remote_code=True)
+
+    # Resolve the integer label to its PolitiFact name via the ClassLabel
+    # feature when available; otherwise assume the canonical name ordering.
+    label_feature = ds.features.get("label")
+    names = getattr(label_feature, "names", None) or [
+        "false",
+        "half-true",
+        "mostly-true",
+        "true",
+        "barely-true",
+        "pants-fire",
+    ]
+
+    out: list[dict] = []
+    for i, row in enumerate(ds):
+        raw = row.get("label")
+        if isinstance(raw, int) and 0 <= raw < len(names):
+            name = names[raw]
+        else:
+            name = str(raw).strip().lower()
+        statement = (row.get("statement") or "").strip()
+        if len(statement) < 12:
+            continue
+        binary = "reliable" if name in _LIAR_RELIABLE else "unreliable"
+        out.append(
+            {
+                "id": f"liar-{split}-{i}",
+                "label": binary,
+                "text": statement[:max_chars],
+                "claim": statement[:max_chars],
+                "meta": {"liar_label": name, "subject": row.get("subject")},
+            }
+        )
+    return out
+
+
 HF_LOADERS = {
     "gonzaloa": (_load_gonzaloa, "test"),
     "pulk17": (_load_pulk17, "train"),
     "mrm8488": (_load_mrm8488, "train"),
+    "liar": (_load_liar, "test"),
 }
 
 

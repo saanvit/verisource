@@ -27,6 +27,7 @@ from backend.reliability.content_extractor import (
 )
 from backend.reliability.cross_reference import cross_reference
 from backend.reliability.domain_reputation import lookup as lookup_domain
+from backend.reliability.pipeline_claim_check import assess_claim_check
 from backend.reliability.pipeline_per_claim import assess_per_claim
 from backend.reliability.scorer import aggregate
 
@@ -93,6 +94,19 @@ async def per_claim_pipeline(example: EvalExample) -> ReliabilityReport:
     return await assess_per_claim(content, user_claim=example.claim)
 
 
+async def claim_check_pipeline(
+    example: EvalExample, *, adversarial: bool | None = None
+) -> ReliabilityReport:
+    """Claim-check pipeline: verify a single standalone claim end-to-end.
+
+    Uses ``example.claim`` (the statement to verify), falling back to
+    ``example.text``. This is the pipeline evaluated on claim-verification
+    benchmarks like LIAR. Pass ``adversarial=False`` for the ablation.
+    """
+    claim = (example.claim or example.text or "").strip()
+    return await assess_claim_check(claim, adversarial=adversarial)
+
+
 async def _run_one(
     example: EvalExample,
     pipeline: Pipeline,
@@ -145,9 +159,12 @@ async def run_eval(
             pipeline = _default
         elif pipeline_name == "per-claim":
             pipeline = per_claim_pipeline
+        elif pipeline_name == "claim-check":
+            pipeline = claim_check_pipeline
         else:
             raise ValueError(
-                f"unknown pipeline_name {pipeline_name!r} (expected 'default' or 'per-claim')"
+                f"unknown pipeline_name {pipeline_name!r} "
+                "(expected 'default', 'per-claim', or 'claim-check')"
             )
 
     sem = asyncio.Semaphore(max(1, concurrency))

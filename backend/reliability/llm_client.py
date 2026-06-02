@@ -26,7 +26,9 @@ from backend.config import settings
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
 
-def _call_openrouter(system: str, user: str, temperature: float, json_mode: bool) -> str:
+def _call_openrouter(
+    system: str, user: str, temperature: float, json_mode: bool, max_tokens: int
+) -> str:
     """One synchronous request to OpenRouter. Returns the model's text content.
 
     Raises ``httpx.HTTPError`` on transport failures and ``ValueError`` if
@@ -48,6 +50,11 @@ def _call_openrouter(system: str, user: str, temperature: float, json_mode: bool
             {"role": "user", "content": user},
         ],
         "temperature": temperature,
+        # Cap output length. Without this, OpenRouter assumes the model's full
+        # context as max_tokens and its credit-affordability check rejects the
+        # request (HTTP 402) even though these JSON-extraction tasks only emit
+        # a few hundred tokens. Also keeps per-call cost predictable.
+        "max_tokens": max_tokens,
     }
     if json_mode:
         # Many but not all OpenRouter-served models support this. For models
@@ -66,7 +73,9 @@ def _call_openrouter(system: str, user: str, temperature: float, json_mode: bool
     return content
 
 
-def _call_mistral(system: str, user: str, temperature: float, json_mode: bool) -> str:
+def _call_mistral(
+    system: str, user: str, temperature: float, json_mode: bool, max_tokens: int
+) -> str:
     """One synchronous request to Mistral via the official SDK."""
     from mistralai import Mistral  # local import — avoids importing when unused
 
@@ -78,6 +87,7 @@ def _call_mistral(system: str, user: str, temperature: float, json_mode: bool) -
             {"role": "user", "content": user},
         ],
         "temperature": temperature,
+        "max_tokens": max_tokens,
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
@@ -91,6 +101,7 @@ def chat_json(
     *,
     temperature: float = 0.1,
     json_mode: bool = True,
+    max_tokens: int = 4096,
 ) -> str:
     """Send a system+user prompt to whichever LLM is configured.
 
@@ -105,9 +116,9 @@ def chat_json(
     """
     provider = settings.llm_provider
     if provider == "openrouter":
-        return _call_openrouter(system, user, temperature, json_mode)
+        return _call_openrouter(system, user, temperature, json_mode, max_tokens)
     if provider == "mistral":
-        return _call_mistral(system, user, temperature, json_mode)
+        return _call_mistral(system, user, temperature, json_mode, max_tokens)
     raise RuntimeError(
         "No LLM configured. Set OPENROUTER_API_KEY or MISTRAL_API_KEY in your .env."
     )

@@ -19,6 +19,8 @@ from backend.reliability.content_extractor import (
 )
 from backend.reliability.cross_reference import cross_reference
 from backend.reliability.domain_reputation import lookup as lookup_domain
+from backend.reliability.citation_audit import assess_citation_audit
+from backend.reliability.pipeline_claim_check import assess_claim_check
 from backend.reliability.pipeline_per_claim import (
     assess_per_claim,
     assess_per_claim_reflective,
@@ -63,7 +65,9 @@ async def health() -> dict[str, object]:
         "provider": provider,
         "model": active_model,
         "default_mode": "per-claim",
-        "modes": ["default", "per-claim", "per-claim-reflective"],
+        "modes": [
+            "default", "per-claim", "per-claim-reflective", "claim-check", "citation-audit"
+        ],
     }
 
 
@@ -72,17 +76,56 @@ async def assess(
     req: AssessRequest,
     mode: str = Query(
         default="per-claim",
-        pattern="^(default|per-claim|per-claim-reflective)$",
+        pattern="^(default|per-claim|per-claim-reflective|claim-check|citation-audit)$",
         description=(
             "Which pipeline to run. 'per-claim' (default) decomposes the article into "
             "atomic claims and verifies each independently; 'default' runs the legacy "
             "single-shot analyzer + one cross-reference search; 'per-claim-reflective' "
             "wraps the per-claim pipeline in a Claude-driven self-critique loop that "
             "audits the initial verifications and applies targeted fixes (relabel "
-            "mislabeled hits, re-search weak queries, split compound claims)."
+            "mislabeled hits, re-search weak queries, split compound claims); "
+            "'claim-check' verifies a single standalone claim from the `claim` field "
+            "(no source document) with adversarial retrieval; 'citation-audit' checks "
+            "whether each source an article links to actually supports the sentence "
+            "citing it."
         ),
     ),
 ) -> ReliabilityReport:
+    # claim-check operates on the standalone `claim` field, not a document.
+    if mode == "claim-check":
+        if not req.claim or not req.claim.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="claim-check requires a `claim` in the request body.",
+            )
+        return await assess_claim_check(req.claim)
+
+    # citation-audit needs the article's raw HTML (it parses out-links), so it
+    # does its own fetching rather than going through extract_from_url.
+    if mode == "citation-audit":
+        if not req.url and not req.text:
+            raise HTTPException(
+                status_code=400,
+                detail="citation-audit requires a `url` (or HTML `text`) in the request body.",
+            )
+        try:
+            return await assess_citation_audit(
+                url=str(req.url) if req.url else None, text=req.text
+            )
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Site returned HTTP {exc.response.status_code} (paywall or anti-bot block). "
+                    "Try a different article URL."
+                ),
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not fetch the article ({type(exc).__name__}).",
+            ) from exc
+
     if not req.url and not req.text:
         raise HTTPException(
             status_code=400, detail="Provide either `url` or `text` in the request body."

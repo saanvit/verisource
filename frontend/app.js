@@ -23,6 +23,27 @@ function selectMode(mode) {
     b.classList.toggle("active", on);
     b.setAttribute("aria-checked", on ? "true" : "false");
   });
+  // claim-check is a different tool: it verifies a single standalone claim,
+  // so hide the article URL/text inputs and promote the claim field.
+  const panel = $(".input-panel");
+  if (panel) panel.classList.toggle("claim-only", mode === "claim-check");
+  const head = panel?.querySelector(".panel-head h2");
+  const sub = panel?.querySelector(".panel-sub");
+  if (head && sub) {
+    if (mode === "claim-check") {
+      head.textContent = "Fact-check a single claim";
+      sub.textContent =
+        "Paste a claim, headline, or tweet. We'll retrieve independent evidence, label each source, and stress-test it with an adversarial search.";
+    } else if (mode === "citation-audit") {
+      head.textContent = "Audit an article's citations";
+      sub.textContent =
+        "Paste an article URL. We'll fetch each source it links to and check whether that source actually supports the sentence citing it.";
+    } else {
+      head.textContent = "Submit an article for assessment";
+      sub.textContent =
+        "Paste a URL or the article body. We'll decompose the claims and check each against independent sources.";
+    }
+  }
 }
 
 function setupModeToggle() {
@@ -70,6 +91,12 @@ const EXAMPLES = [
       "billions keeping you sick. Doctors HATE this simple trick. Share before they " +
       "take this down!",
   },
+  {
+    label: "Single claim",
+    hint: "reliable",
+    mode: "claim-check",
+    claim: "The James Webb Space Telescope launched on December 25, 2021.",
+  },
 ];
 
 const HINT_TONE = { reliable: "green", mixed: "yellow", questionable: "orange" };
@@ -88,6 +115,15 @@ function setupExamples() {
     btn.addEventListener("click", () => {
       const ex = EXAMPLES[Number(btn.dataset.ex)];
       if (!ex) return;
+      if (ex.mode === "claim-check") {
+        // Claim-check takes a standalone claim, not an article body.
+        $("#url").value = "";
+        $("#text").value = "";
+        $("#claim").value = ex.claim || "";
+        selectMode(ex.mode); // hides the URL/text tabs via .claim-only
+        runAssessment();
+        return;
+      }
       // Switch to the paste-text tab and fill it.
       state.activeTab = "text";
       $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "text"));
@@ -388,16 +424,21 @@ function renderReflectionTrace(trace) {
     </div>`;
 }
 
-function renderClaimVerifications(verifications, coverage) {
+function renderClaimVerifications(verifications, coverage, opts = {}) {
   if (!verifications?.length) return "";
+  const n = verifications.length;
+  const plural = n === 1 ? "claim" : "claims";
   const meta =
-    coverage == null
-      ? `${verifications.length} claims`
-      : `${verifications.length} claims · <span class="term" title="Share of claims we could find independent evidence for.">${(coverage * 100).toFixed(0)}% verified</span>`;
+    opts.metaText != null
+      ? opts.metaText
+      : coverage == null
+      ? `${n} ${plural}`
+      : `${n} ${plural} · <span class="term" title="Share of claims we could find independent evidence for.">${(coverage * 100).toFixed(0)}% verified</span>`;
+  const title = opts.title || "Per-claim verification";
   return `
     <div>
       <div class="section-title">
-        Per-claim verification
+        ${escapeHtml(title)}
         <span class="section-meta">${meta}</span>
       </div>
       <div class="claim-list">
@@ -702,6 +743,186 @@ function renderReport(report) {
   `;
 }
 
+// claim status → natural-language headline for the claim-check hero.
+function claimStatusHeadline(status) {
+  return {
+    supported: "Supported by sources",
+    contradicted: "Contradicted by sources",
+    mixed: "Mixed evidence",
+    unverified: "Couldn't verify",
+  }[status] || "Checked";
+}
+
+// Focused renderer for the "Check a claim" tool. Unlike renderReport (which
+// frames the result as source reliability), this centers the single
+// standalone claim: its support/contradict verdict, the evidence, and the
+// adversarial robustness probe. Reuses the same hero + seg structure so the
+// staged-reveal orchestrator (reveal.js) animates it unchanged.
+function renderClaimCheckReport(report) {
+  const ca = report.content_analysis || {};
+  const xref = report.cross_reference || {};
+  const v = (ca.claim_verifications || [])[0];
+  if (!v) return renderReport(report); // defensive fallback
+
+  const overall = Math.round(report.overall_score);
+  const color = scoreColor(overall);
+  const glow = scoreGlow(overall);
+  const statusTone = statusBadgeClass(v.status);
+
+  const hero = `
+    <div class="score-hero" style="--score-glow:${glow}" data-reveal="hero">
+      <div class="score-hero-top">
+        <div class="score-ring" style="--pct:${overall};--ring:${color}">
+          <div class="score-num">${overall}</div>
+          <div class="score-denom">/ 100</div>
+        </div>
+        <div class="score-content">
+          <div class="verdict-headline">
+            <span class="badge ${statusTone} verdict-badge">
+              <span class="dot"></span>
+              ${escapeHtml(v.status)}
+            </span>
+            <h1 class="hero-h1">${escapeHtml(claimStatusHeadline(v.status))}</h1>
+          </div>
+          <p class="hero-summary claim-check-claim">${escapeHtml(v.claim)}</p>
+        </div>
+      </div>
+      <div class="score-hero-bar">
+        <span class="meta-pill"><span class="meta-key">Confidence</span><span class="meta-val">${(report.confidence * 100).toFixed(0)}%</span></span>
+        <span class="meta-pill"><span class="meta-key">Evidence</span><span class="meta-val">${v.n_evidence} · ${v.n_high_quality} HQ</span></span>
+        ${
+          v.robustness_tag && v.robustness_tag !== "untested"
+            ? `<span class="meta-pill"><span class="meta-key">Adversarial</span><span class="meta-val">${escapeHtml(v.robustness_tag)}</span></span>`
+            : ""
+        }
+      </div>
+    </div>`;
+
+  const hasRedFlags = Array.isArray(ca.red_flags) && ca.red_flags.length > 0;
+  const verdictPane = `
+    <div class="seg-pane active" data-seg-pane="verdict">
+      ${renderClaimVerifications([v], null, {
+        title: "Verification",
+        metaText: `status: ${escapeHtml(v.status)}`,
+      })}
+      ${
+        hasRedFlags
+          ? `<ul class="flags">${ca.red_flags.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul>`
+          : ""
+      }
+    </div>`;
+
+  const evidencePane = `
+    <div class="seg-pane" data-seg-pane="evidence">
+      <div>
+        <div class="section-title">All retrieved sources
+          <span class="section-meta">${(xref.sources || []).length} sources</span>
+        </div>
+        ${renderSources(xref.sources)}
+      </div>
+    </div>`;
+
+  const seg = `
+    <div class="seg" role="tablist" data-default-seg="verdict">
+      <button class="seg-btn" data-seg="verdict" role="tab">Verdict</button>
+      <button class="seg-btn" data-seg="evidence" role="tab">Evidence</button>
+    </div>`;
+
+  return `
+    ${hero}
+    ${seg}
+    <div class="seg-panes">
+      ${verdictPane}
+      ${evidencePane}
+    </div>
+  `;
+}
+
+// Focused renderer for the "Citation audit" tool. Each claim_verification
+// is one citation: claim = the citing sentence, evidence = the cited source.
+// The hero shows a citation-integrity score (share of cited sources that
+// actually support the sentence citing them).
+function renderCitationAudit(report) {
+  const ca = report.content_analysis || {};
+  const xref = report.cross_reference || {};
+  const cits = ca.claim_verifications || [];
+  const overall = Math.round(report.overall_score);
+  const color = scoreColor(overall);
+  const glow = scoreGlow(overall);
+  const nSupported = cits.filter((v) => v.status === "supported").length;
+  const nTotal = cits.length;
+  const nWeak = nTotal - nSupported;
+  const tone = overall >= 80 ? "green" : overall >= 50 ? "yellow" : "red";
+  const headline =
+    nTotal === 0
+      ? "No citations found"
+      : overall >= 80
+      ? "Citations hold up"
+      : overall >= 50
+      ? "Some citations are weak"
+      : "Citations don't support the claims";
+
+  const hero = `
+    <div class="score-hero" style="--score-glow:${glow}" data-reveal="hero">
+      <div class="score-hero-top">
+        <div class="score-ring" style="--pct:${overall};--ring:${color}">
+          <div class="score-num">${overall}</div>
+          <div class="score-denom">/ 100</div>
+        </div>
+        <div class="score-content">
+          <div class="verdict-headline">
+            <span class="badge ${tone} verdict-badge">
+              <span class="dot"></span>
+              citation integrity
+            </span>
+            <h1 class="hero-h1">${escapeHtml(headline)}</h1>
+          </div>
+          <p class="hero-summary">${escapeHtml(report.explanation || "")}</p>
+        </div>
+      </div>
+      <div class="score-hero-bar">
+        <span class="meta-pill"><span class="meta-key">Citations</span><span class="meta-val">${nTotal}</span></span>
+        <span class="meta-pill"><span class="meta-key">Supported</span><span class="meta-val">${nSupported}</span></span>
+        ${
+          nWeak > 0
+            ? `<span class="meta-pill"><span class="meta-key">Unsupported</span><span class="meta-val">${nWeak}</span></span>`
+            : ""
+        }
+      </div>
+    </div>`;
+
+  const hasRedFlags = Array.isArray(ca.red_flags) && ca.red_flags.length > 0;
+  const verdictPane = `
+    <div class="seg-pane active" data-seg-pane="citations">
+      ${
+        nTotal === 0
+          ? `<p class="status">No external in-text citations were found to audit. Try an article URL that links out to its sources.</p>`
+          : renderClaimVerifications(cits, null, {
+              title: "Cited sources",
+              metaText: `${nSupported}/${nTotal} support their claim`,
+            })
+      }
+      ${
+        hasRedFlags
+          ? `<div class="red-flags-block"><div class="section-title red-flags-title">Citations that don't hold up<span class="section-meta">${ca.red_flags.length}</span></div><ul class="flags">${ca.red_flags.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul></div>`
+          : ""
+      }
+    </div>`;
+
+  const seg = `
+    <div class="seg" role="tablist" data-default-seg="citations">
+      <button class="seg-btn" data-seg="citations" role="tab">Citations</button>
+    </div>`;
+
+  return `
+    ${hero}
+    ${seg}
+    <div class="seg-panes">
+      ${verdictPane}
+    </div>
+  `;
+}
+
 // Compact 3-signal strip for the Overview tab — small stat tiles instead
 // of the big panels, so Overview stays scannable.
 function renderSignalStrip(report) {
@@ -803,20 +1024,27 @@ async function runAssessment() {
   const claim = $("#claim").value.trim();
 
   const body = {};
-  if (state.activeTab === "url") {
+  if (state.mode === "claim-check") {
+    if (!claim) {
+      setStatus("Enter a claim to fact-check.", "warn");
+      return;
+    }
+    body.claim = claim;
+  } else if (state.activeTab === "url") {
     if (!url) {
       setStatus("Please enter a URL.", "warn");
       return;
     }
     body.url = url;
+    if (claim) body.claim = claim;
   } else {
     if (!text) {
       setStatus("Please paste some article text.", "warn");
       return;
     }
     body.text = text;
+    if (claim) body.claim = claim;
   }
-  if (claim) body.claim = claim;
 
   const btn = $("#run");
   btn.disabled = true;
@@ -839,7 +1067,12 @@ async function runAssessment() {
     const apiDurationMs = performance.now() - reqStart;
     stopLoading();
     const results = $("#results");
-    results.innerHTML = renderReport(report);
+    results.innerHTML =
+      state.mode === "claim-check"
+        ? renderClaimCheckReport(report)
+        : state.mode === "citation-audit"
+        ? renderCitationAudit(report)
+        : renderReport(report);
     results.classList.remove("hidden");
     setStatus("");
     // Activate the segmented tabs (instant; picks the default pane).
@@ -883,6 +1116,8 @@ const LOADING_STEPS = {
     "Agent self-critique",
     "Scoring",
   ],
+  "claim-check": ["Parsing claim", "Adversarial retrieval", "Stance labeling", "Scoring"],
+  "citation-audit": ["Fetching article", "Extracting citations", "Fetching sources", "Checking support"],
 };
 
 function showLoading(mode) {

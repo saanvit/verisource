@@ -2147,3 +2147,14 @@ footer { margin-top: auto; }
   .how-signals, .how-stats { grid-template-columns: 1fr; }
   .how-inner { padding: 22px 20px 24px; }
 }
+
+/* "Check a claim" tool: hide the article inputs and promote the claim
+   field as the single primary input. Toggled by .claim-only on the panel. */
+.input-panel.claim-only .tabs,
+.input-panel.claim-only .tab-pane { display: none; }
+.input-panel.claim-only label[for="claim"] .optional { display: none; }
+.input-panel.claim-only #claim {
+  font-size: 15px;
+  padding: 13px 15px;
+}
+.claim-check-claim { font-style: italic; }
