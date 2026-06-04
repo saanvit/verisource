@@ -97,6 +97,22 @@ const EXAMPLES = [
     mode: "claim-check",
     claim: "The James Webb Space Telescope launched on December 25, 2021.",
   },
+  {
+    label: "Citation audit",
+    hint: "mixed",
+    mode: "citation-audit",
+    html:
+      "<article>" +
+      '<p>The James Webb Space Telescope launched on December 25, 2021 ' +
+      '<a href="https://en.wikipedia.org/wiki/James_Webb_Space_Telescope">according to NASA</a>.</p>' +
+      '<p>Mount Everest is the highest mountain above sea level on Earth ' +
+      '<a href="https://en.wikipedia.org/wiki/Mount_Everest">per this reference</a>.</p>' +
+      '<p>The Great Wall of China is visible from the Moon with the naked eye ' +
+      '<a href="https://en.wikipedia.org/wiki/Great_Wall_of_China">as documented here</a>.</p>' +
+      '<p>Drinking coffee causes cancer ' +
+      '<a href="https://en.wikipedia.org/wiki/Coffee">according to research</a>.</p>' +
+      "</article>",
+  },
 ];
 
 const HINT_TONE = { reliable: "green", mixed: "yellow", questionable: "orange" };
@@ -121,6 +137,18 @@ function setupExamples() {
         $("#text").value = "";
         $("#claim").value = ex.claim || "";
         selectMode(ex.mode); // hides the URL/text tabs via .claim-only
+        runAssessment();
+        return;
+      }
+      if (ex.mode === "citation-audit") {
+        // Citation audit takes article HTML (with out-links) in the text box.
+        state.activeTab = "text";
+        $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === "text"));
+        $$(".tab-pane").forEach((p) => p.classList.toggle("active", p.dataset.pane === "text"));
+        $("#url").value = "";
+        $("#claim").value = "";
+        $("#text").value = ex.html || "";
+        selectMode(ex.mode);
         runAssessment();
         return;
       }

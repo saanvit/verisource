@@ -6,7 +6,7 @@ driven by env vars in ``backend.config.settings``:
 
 * ``OPENROUTER_API_KEY`` set → route through OpenRouter (preferred when
   configured because OpenRouter gives access to frontier models like
-  ``anthropic/claude-3.5-sonnet`` and ``openai/gpt-4o``).
+  ``anthropic/claude-sonnet-4.6`` and ``anthropic/claude-opus-4.8``).
 * Otherwise, falls back to direct Mistral if ``MISTRAL_API_KEY`` set.
 * Otherwise, raises ``RuntimeError`` — callers should check
   ``settings.has_llm`` before calling.
@@ -111,7 +111,7 @@ def chat_json(
 
     Routing: OpenRouter is preferred when ``OPENROUTER_API_KEY`` is set,
     because that's where the CS153 credits live and it gives access to
-    Claude 3.5 Sonnet / GPT-4o, which are noticeably better than Mistral
+    Claude Sonnet/Opus, which are noticeably better than Mistral
     on structured-extraction tasks. Falls back to Mistral otherwise.
     """
     provider = settings.llm_provider

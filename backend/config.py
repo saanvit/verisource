@@ -35,7 +35,7 @@ class Settings:
 
         OpenRouter takes priority when configured because the CS153
         credits live there and it gives access to frontier models
-        (Claude 3.5 Sonnet, GPT-4o, etc.). Falls back to Mistral.
+        (Claude Sonnet/Opus, etc.). Falls back to Mistral.
         """
         if self.openrouter_api_key:
             return "openrouter"

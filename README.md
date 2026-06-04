@@ -1,5 +1,11 @@
 # VeriSource — Evidence · Triangulation · Reliability
 
+**🔗 Live demo:** https://veritysource-ylv7z.ondigitalocean.app · 📄 [Demo video script](docs/VIDEO_SCRIPT.md) · 📊 [Evaluation & failure analysis](docs/EVALUATION.md)
+
+> **Thesis:** decomposing a claim into atomic facts and then *actively searching for evidence that it is false* beats whole-document and zero-shot LLM judgment at catching unreliable claims. On the LIAR benchmark this single adversarial-retrieval step lifts macro-F1 from **0.33 → 0.62** ([see Evaluation](#claim-verification-liar)).
+
+<!-- TODO(author): drop a screenshot/GIF here for instant impact — e.g. claim-check refuting a viral false claim (with the adversarial trace), and citation-audit flagging a mislinked source. Save it under docs/ and reference it:  ![VeriSource demo](docs/demo.png)  -->
+
 VeriSource is an LLM-powered tool that evaluates how reliable a news article or
 written source is. Given a URL or pasted text, it decomposes the article into
 atomic claims, checks each against independent web sources, and produces a 0-100
@@ -360,6 +366,33 @@ search is what surfaces the contradicting evidence that catches false claims,
 lifting accuracy +0.17 and macro-F1 +0.29 over the zero-shot baseline. LIAR
 is a hard benchmark (many statements are opinion-laden or context-dependent),
 so 0.65 with retrieval is a meaningful, honest result rather than a ceiling.
+
+**Error analysis.** Categorizing the 21 claim-check errors (of 60) reveals a
+clear, consistent failure mode rather than random noise: **20 of 21 are false
+positives** — a false claim scored *reliable* — and only **1 is a false
+negative**. The tool almost never calls a true statement false; it errs by
+letting subtly-false ones through. The misses cluster into three kinds:
+
+1. **Misleading-but-literally-supported framing** (the largest bucket): the
+   surface assertion is corroborated, but PolitiFact rated it false for
+   cherry-picking or missing context — e.g. *"I turned a $110 million deficit
+   into a $1.6 million surplus"* (barely-true) or *"the government got the TARP
+   money back plus a profit"* (barely-true). Retrieval + stance verifies the
+   *literal* fact, not the spin.
+2. **Paraphrase / characterization claims** that aren't atomically checkable —
+   e.g. *"Barack Obama thinks terrorists just need a good talking to"*
+   (pants-fire). No source affirms or denies a paraphrase, so the claim defaults
+   toward reliable.
+3. **Negative / absence claims** (*"Steve Southerland did not pay his taxes…"*)
+   where evidence of absence is hard to retrieve and nothing cleanly contradicts.
+
+The actionable takeaway: the system's weakness is **distinguishing a true
+literal assertion from a misleadingly-framed one**, which is exactly where
+PolitiFact's human judgment adds value over web corroboration. A natural next
+step is a "framing/context" check layered on top of the literal-fact
+verification. (Reproduce this table: `python -m training.eval_claim_check` then
+join the saved predictions in `eval_claim_check_liar.json` with the LIAR
+labels.)
 
 Reproduce (requires LLM + Tavily keys; LIAR loads via `datasets<3`, which
 still supports script datasets):

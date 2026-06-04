@@ -1,104 +1,124 @@
 # VeriSource — Demo Video Script (≤ 3:00)
 
 **Track:** Application / Product
-**Target length:** 2:40–2:55. Record at 1× speed; if a real assessment takes
-~20–30 s, pre-run it and cut to the result (or use a Quick-mode run live).
+**Target length:** 2:40–2:55. Record at 1×; a live claim-check / citation-audit
+takes ~15–30 s, so pre-run each once and cut to the result, or talk over the
+staged-reveal animation while it loads.
 
 **Setup before recording:**
-- Server running: `python -m backend.main` → open `http://localhost:8000`.
-- Health pill should read `LLM ● claude-opus-4.8 · Search ●`.
-- Have the 2026 Texas Senate article URL (or text) ready in your clipboard — it
-  shows the adversarial-refutation and the Deep-mode self-correction well.
-- Pick a clean screen recording size; hide bookmarks/other tabs.
+- Use the **live deployment**: https://veritysource-ylv7z.ondigitalocean.app
+  (or `python -m backend.main` → `http://localhost:8000` for full Opus quality).
+- Health pill should read `LLM ●  · Search ●` (both green).
+- Have these ready to paste:
+  - A viral false claim, e.g. *"5G cell towers spread the COVID-19 virus."*
+  - The citation-audit HTML snippet from the README (2 good + 2 mislinked
+    citations) — paste into Citation audit → "Paste text".
+- Hide bookmarks/other tabs; pick a clean recording size.
 
 ---
 
-## 0:00–0:25 — Q1: Why I built this (the bottleneck)
+## 0:00–0:20 — Q1: Why I built this (the bottleneck + the insight)
 
-**On screen:** VeriSource landing page (the dotted-grid hero, depth toggle).
+**On screen:** the landing page; the five mode tiles visible.
 
-> "Anyone can publish anything, and checking whether a claim actually holds up
-> means opening ten tabs and reading every source yourself. That manual
-> cross-referencing is the bottleneck. VeriSource automates it: paste a URL,
-> and it decomposes the article into atomic claims, searches the open web for
-> each one, and tells you which claims are actually supported by independent
-> evidence — with its work shown."
-
----
-
-## 0:25–1:40 — Q2: How it works (architecture, live run)
-
-**On screen:** Click **How it works** → show the three-signal diagram briefly,
-then close it and paste the Texas article. Choose **Standard**, hit Assess.
-
-> "Three independent signals get fused. One: a domain-reputation prior from
-> Media Bias/Fact Check, Ad Fontes, and AllSides. Two: an LLM content analysis
-> — factuality, objectivity, transparency. Three, the core: per-claim
-> verification."
-
-**On screen:** Results reveal. Open the **Claims** tab; expand a claim.
-
-> "Each atomic claim gets its own web search, and every retrieved source is
-> stance-labeled — supports, contradicts, or unclear — then weighted by that
-> source's own reputation. And it doesn't just look for confirmation: an
-> adversarial search actively tries to *falsify* each claim."
-
-**On screen:** Point at a claim with a **robustness chip** (survived/refuted).
-
-> "This claim was stress-tested with a falsification query and survived — that's
-> the robustness tag. The scores are isotonic-calibrated, so a 70 actually
-> means roughly 70-percent likely reliable."
+> "Most 'is this reliable?' tools score the *publisher*. But two things slip
+> through: a viral claim with no publisher at all, and a respectable article
+> that links to a source which doesn't actually back up what it's citing.
+> VeriSource checks the *claims and the citations themselves* — and the core
+> idea is simple: don't just look for confirmation, actively search for evidence
+> that a claim is **false**."
 
 ---
 
-## 1:40–2:15 — Q2 cont.: The agent (the differentiator)
+## 0:20–1:10 — Q2a: Check a claim (the headline demo)
 
-**On screen:** Re-run (or switch to) **Deep** mode; open the **Agent trace** tab.
+**On screen:** Click **Check a claim**. Paste *"5G cell towers spread the
+COVID-19 virus."* Hit Assess.
 
-> "Stance labels are the hard part — labelers sometimes mark obviously-
-> supporting evidence as contradicting. Deep mode adds a self-critique agent:
-> Claude audits its own verifications, catches mislabels, re-searches weak
-> queries, and splits compound claims — and you can read every correction it
-> made, right here."
+> "No article needed — just the claim. VeriSource retrieves independent
+> evidence, labels each source supports / contradicts / unclear, and then runs
+> an **adversarial search** that deliberately tries to falsify the claim."
 
-**On screen:** Briefly show a round card with a relabel/score-delta.
+**On screen:** Result reveals — low score, **contradicted**, the evidence list,
+and the **refuted** robustness chip. Expand it to show the adversarial query.
 
-> "I caught this exact failure live — a 'won the primary' claim was wrongly
-> labeled refuted — which is what drove the agent design and a switch to a
-> stronger stance model."
-
----
-
-## 2:15–2:40 — Q3: Use cases & impact
-
-**On screen:** Back to a clean result; the score hero + verdict.
-
-> "This is for anyone who needs a fast, auditable reliability read — journalists
-> triaging a source, students checking a citation, or readers facing a viral
-> claim. The point isn't a black-box score; it's that every judgment is
-> traceable to evidence you can click through and disagree with."
+> "Here it's refuted: the falsification search surfaced credible sources
+> debunking it, and you can click straight through to every one. Compare that to
+> a true claim —" *(optionally paste "NASA's Perseverance rover landed on Mars
+> on February 18, 2021." → supported / survived)* "— which survives the same
+> adversarial probe."
 
 ---
 
-## 2:40–2:55 — Q4: What I'd add next
+## 1:10–1:50 — Q2b: Citation audit (the second tool)
 
-**On screen:** Slide or talking head.
+**On screen:** Click **Citation audit** → Paste text → paste the HTML snippet →
+Assess.
 
-> "Next: in-line claim highlighting on the article text itself, a
-> claim-verifiability benchmark like AVeriTeC where the per-claim pipeline
-> should win, and a browser extension to assess any page you're reading. The
-> evaluation, failure analysis, and AI-usage disclosure are all in the repo."
+> "Second tool: paste an article and VeriSource fetches every source it links to
+> and checks whether that source actually supports the sentence citing it."
 
-**End card:** `github.com/saanvit/verisource`
+**On screen:** Result — a citation-integrity score, with the good citations
+**supported** (green) and the mislinked ones **flagged** (red).
+
+> "These two citations check out; these two don't — the linked page doesn't
+> support the claim attached to it. That's citation laundering and
+> hallucinated references made visible — something publisher-level scoring can't
+> catch."
+
+---
+
+## 1:50–2:25 — Q2c + Evaluation: does it actually work?
+
+**On screen:** Cut to the **LIAR results table** (from the README / a slide).
+
+> "I evaluated the claim checker on LIAR, a real fact-checking benchmark. The
+> full pipeline hits 0.65 accuracy — but the interesting part is the ablation:
+> remove the adversarial search, or use a plain zero-shot LLM, and accuracy
+> collapses to chance because the model just calls everything 'reliable.' The
+> adversarial step is what does the work — it lifts macro-F1 from 0.33 to 0.62."
+
+**On screen:** the error-analysis bullet / a couple of misclassified examples.
+
+> "And I looked at where it fails: almost every error is a *subtly* false claim
+> that's literally true but misleadingly framed — which is exactly where human
+> fact-checkers add judgment. I'm honest about that limit in the repo."
+
+---
+
+## 2:25–2:45 — Q3: Use cases & impact
+
+**On screen:** back to a clean result; score hero + evidence.
+
+> "This is for anyone who needs a fast, *auditable* reliability read — a reader
+> facing a viral claim, a student checking a citation, a journalist triaging a
+> source. The point isn't a black-box score; every judgment is traceable to
+> evidence you can click through and disagree with."
+
+---
+
+## 2:45–2:55 — Q4: What I'd add next
+
+**On screen:** slide or talking head.
+
+> "Next: a 'framing' check layered on the literal-fact verification to catch
+> misleading-but-true claims, in-line highlighting on the article itself, and a
+> browser extension. It's deployed, the code is reproducible, and the full
+> evaluation, error analysis, and AI-usage disclosure are in the repo."
+
+**End card:** `github.com/saanvit/verisource` · live at
+`veritysource-ylv7z.ondigitalocean.app`
 
 ---
 
 ## Coverage checklist (rubric-aligned)
 
-- [x] Q1 Why / bottleneck — 0:00
-- [x] Q2 How it works (product architecture: 3 signals, per-claim, calibration, agent) — 0:25
-- [x] Q3 Use cases / societal value — 2:15
-- [x] Q4 Future work — 2:40
-- [x] Shows a functional artifact end-to-end (Execution)
-- [x] Shows evidence/limitations awareness (the live failure case) (Evaluation)
-- [x] Points to repo + docs (Communication, Disclosure)
+- [x] Q1 Why / bottleneck + the core insight — 0:00
+- [x] Q2 How it works — two tools demoed live (claim-check, citation-audit) + the
+      adversarial-retrieval mechanism — 0:20
+- [x] Evaluation: LIAR ablation table + error analysis (limitations) — 1:50
+- [x] Q3 Use cases / societal value — 2:25
+- [x] Q4 Future work — 2:45
+- [x] Functional artifact, deployed and end-to-end (Execution)
+- [x] Evidence + honest limitations (Evaluation)
+- [x] Repo + live URL + docs (Communication, Disclosure)
