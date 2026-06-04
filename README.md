@@ -2,36 +2,36 @@
 
 Live demo: https://veritysource-ylv7z.ondigitalocean.app
 
-VeriSource checks how reliable a news article or claim is. You hand it a URL,
-some pasted text, or a single claim; it breaks the content into individual
-factual claims, searches the open web for evidence on each one, and returns a
-0-100 reliability score plus the supporting and contradicting sources, laid out
-so you can check them yourself.
+Most "is this reliable?" tools score the *publisher*. VeriSource checks the
+actual *claims*.
 
-The idea that makes it work: rather than only looking for evidence that confirms
-a claim, it also runs a search built to prove the claim *false*. On the LIAR
-fact-checking benchmark, adding that adversarial step raises macro-F1 from 0.33
-to 0.62 (see [Evaluation](#claim-verification-liar)).
+Give it a URL, some text, or a single claim. It breaks the content into
+individual factual claims, searches the open web for each, and returns a 0-100
+score with the sources that back the claim up — and the ones that don't — so you
+can check its work.
 
-There are three depths for a whole article:
+The trick: it doesn't just hunt for evidence that a claim is true. It runs a
+second search built to prove the claim *false*. On the LIAR fact-checking
+benchmark, that one adversarial step nearly doubles macro-F1 (0.33 → 0.62; see
+[Evaluation](#claim-verification-liar)).
 
-* **Quick** — one LLM pass over the whole article.
-* **Standard** — split into atomic claims and verify each against retrieved sources.
-* **Deep** — adds a self-critique agent that reviews and fixes its own labels.
+Three depths for a full article:
 
-And two tools that work on a single input:
+* **Quick** — one LLM pass.
+* **Standard** — split into atomic claims, verify each against retrieved sources.
+* **Deep** — a self-critique agent reviews and fixes its own labels.
 
-* **Check a claim** — paste one claim, headline, or tweet. It retrieves evidence,
-  labels each source, and runs the adversarial search. Evaluated on the LIAR
-  benchmark below.
-* **Citation audit** — paste an article that links to its sources. For each linked
-  source it checks whether that page actually backs up the sentence citing it,
-  which catches mislinked or made-up citations.
+Two tools for a single input:
 
-It also includes a fine-tuned local NLI model for stance labeling and an isotonic
-calibrator for the scores. The [demo script](docs/VIDEO_SCRIPT.md), the
-[evaluation write-up](docs/EVALUATION.md), and the AI-usage disclosure (further
-down) cover the rest.
+* **Check a claim** — paste a claim, headline, or tweet. Retrieves evidence,
+  labels each source, runs the adversarial search.
+* **Citation audit** — paste an article and it checks every link: does the cited
+  source actually back the sentence citing it? Catches mislinked and made-up
+  citations.
+
+Under the hood: a fine-tuned NLI model for stance labeling and an isotonic
+calibrator for the scores. The [demo script](docs/VIDEO_SCRIPT.md),
+[evaluation](docs/EVALUATION.md), and AI-usage disclosure are below.
 
 ## Contents
 
