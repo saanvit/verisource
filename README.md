@@ -1,38 +1,37 @@
-# VeriSource — Evidence · Triangulation · Reliability
+# VeriSource
 
-**🔗 Live demo:** https://veritysource-ylv7z.ondigitalocean.app · 📄 [Demo video script](docs/VIDEO_SCRIPT.md) · 📊 [Evaluation & failure analysis](docs/EVALUATION.md)
+Live demo: https://veritysource-ylv7z.ondigitalocean.app
 
-> **Thesis:** decomposing a claim into atomic facts and then *actively searching for evidence that it is false* beats whole-document and zero-shot LLM judgment at catching unreliable claims. On the LIAR benchmark this single adversarial-retrieval step lifts macro-F1 from **0.33 → 0.62** ([see Evaluation](#claim-verification-liar)).
+VeriSource checks how reliable a news article or claim is. You hand it a URL,
+some pasted text, or a single claim; it breaks the content into individual
+factual claims, searches the open web for evidence on each one, and returns a
+0-100 reliability score plus the supporting and contradicting sources, laid out
+so you can check them yourself.
 
-<!-- TODO(author): drop a screenshot/GIF here for instant impact — e.g. claim-check refuting a viral false claim (with the adversarial trace), and citation-audit flagging a mislinked source. Save it under docs/ and reference it:  ![VeriSource demo](docs/demo.png)  -->
+The idea that makes it work: rather than only looking for evidence that confirms
+a claim, it also runs a search built to prove the claim *false*. On the LIAR
+fact-checking benchmark, adding that adversarial step raises macro-F1 from 0.33
+to 0.62 (see [Evaluation](#claim-verification-liar)).
 
-VeriSource is an LLM-powered tool that evaluates how reliable a news article or
-written source is. Given a URL or pasted text, it decomposes the article into
-atomic claims, checks each against independent web sources, and produces a 0-100
-reliability score, a verdict (`highly-reliable` → `unreliable`), and a structured
-breakdown of the evidence.
+There are three depths for a whole article:
 
-It ships three analysis depths for whole articles — **Quick** (single-shot
-whole-article judgment), **Standard** (per-claim decomposition + retrieval), and
-**Deep** (adds a self-critique agent that audits and fixes its own
-verifications) — plus a fine-tuned local NLI stance labeler and an isotonic
-score calibrator.
+* **Quick** — one LLM pass over the whole article.
+* **Standard** — split into atomic claims and verify each against retrieved sources.
+* **Deep** — adds a self-critique agent that reviews and fixes its own labels.
 
-It also ships two focused verification tools built on the same engine:
+And two tools that work on a single input:
 
-* **Check a claim** — paste a single claim, headline, or tweet (no article
-  needed). VeriSource retrieves independent evidence, labels each source's
-  stance, and stress-tests the claim with an *adversarial* falsification
-  search. Evaluated end-to-end on the **LIAR** claim-verification benchmark
-  (see [Evaluation](#claim-verification-liar)).
-* **Citation audit** — paste an article URL. For every source the article
-  links to, VeriSource fetches that source and checks whether it actually
-  supports the sentence citing it — catching mislinked, misread, or
-  hallucinated citations that source-level scoring misses entirely.
+* **Check a claim** — paste one claim, headline, or tweet. It retrieves evidence,
+  labels each source, and runs the adversarial search. Evaluated on the LIAR
+  benchmark below.
+* **Citation audit** — paste an article that links to its sources. For each linked
+  source it checks whether that page actually backs up the sentence citing it,
+  which catches mislinked or made-up citations.
 
-**Project docs:** [Evaluation & failure analysis](docs/EVALUATION.md) ·
-[Demo video script](docs/VIDEO_SCRIPT.md) · AI-usage disclosure and citations
-are at the [bottom of this README](#ai-usage-disclosure).
+It also includes a fine-tuned local NLI model for stance labeling and an isotonic
+calibrator for the scores. The [demo script](docs/VIDEO_SCRIPT.md), the
+[evaluation write-up](docs/EVALUATION.md), and the AI-usage disclosure (further
+down) cover the rest.
 
 ## How reliability is assessed
 
@@ -347,10 +346,8 @@ python -m backend.eval \
 The benchmarks above test *source classification* on stylistic fake-news
 data. The **Check a claim** tool is instead designed for *claim
 verifiability*, so it is evaluated on **LIAR** (PolitiFact short statements),
-binarized to reliable/unreliable. This is the claim-verifiability experiment
-the section above anticipated. We compare three configurations on the same
-claims (n=60), and the result doubles as an **ablation** of adversarial
-retrieval:
+binarized to reliable/unreliable. I compare three configurations on the same 60
+claims, which also serves as an ablation of the adversarial search:
 
 | config                                   | n  | accuracy | macro-F1 | ROC-AUC |
 | ---------------------------------------- | -- | -------- | -------- | ------- |
@@ -358,20 +355,19 @@ retrieval:
 | Claim-check, no adversarial (ablation)   | 60 | 0.483    | 0.326    | 0.466   |
 | Zero-shot LLM baseline ("is this true?") | 60 | 0.483    | 0.326    | 0.500   |
 
-The headline finding: **adversarial retrieval is what gives the tool its
-discriminative power.** Without it — and likewise for the plain zero-shot
-LLM — the model collapses to predicting "reliable" for nearly everything
-(recall-reliable ≈ 1.0, recall-unreliable ≈ 0). The deliberate falsification
-search is what surfaces the contradicting evidence that catches false claims,
-lifting accuracy +0.17 and macro-F1 +0.29 over the zero-shot baseline. LIAR
-is a hard benchmark (many statements are opinion-laden or context-dependent),
-so 0.65 with retrieval is a meaningful, honest result rather than a ceiling.
+The adversarial search is doing the work here. Without it, and likewise for the
+plain zero-shot LLM, the model labels almost everything "reliable"
+(recall-reliable ≈ 1.0, recall-unreliable ≈ 0). The falsification search is what
+turns up the contradicting evidence that catches false claims, adding 0.17
+accuracy and 0.29 macro-F1 over the zero-shot baseline. LIAR is hard — many
+statements are opinion-laden or depend on context — so 0.65 is a reasonable
+result, not a ceiling.
 
-**Error analysis.** Categorizing the 21 claim-check errors (of 60) reveals a
-clear, consistent failure mode rather than random noise: **20 of 21 are false
-positives** — a false claim scored *reliable* — and only **1 is a false
-negative**. The tool almost never calls a true statement false; it errs by
-letting subtly-false ones through. The misses cluster into three kinds:
+**Error analysis.** I categorized the 21 claim-check errors (of 60), and they
+fall into one consistent pattern: 20 of 21 are false positives (a false claim
+scored reliable) and only 1 is a false negative. The tool almost never calls a
+true statement false; it errs by letting subtly-false ones through. The misses
+fall into three kinds:
 
 1. **Misleading-but-literally-supported framing** (the largest bucket): the
    surface assertion is corroborated, but PolitiFact rated it false for
@@ -386,13 +382,12 @@ letting subtly-false ones through. The misses cluster into three kinds:
 3. **Negative / absence claims** (*"Steve Southerland did not pay his taxes…"*)
    where evidence of absence is hard to retrieve and nothing cleanly contradicts.
 
-The actionable takeaway: the system's weakness is **distinguishing a true
-literal assertion from a misleadingly-framed one**, which is exactly where
-PolitiFact's human judgment adds value over web corroboration. A natural next
-step is a "framing/context" check layered on top of the literal-fact
-verification. (Reproduce this table: `python -m training.eval_claim_check` then
-join the saved predictions in `eval_claim_check_liar.json` with the LIAR
-labels.)
+So the real weakness is telling a true literal assertion apart from a
+misleadingly-framed one, which is exactly where a human fact-checker's judgment
+beats plain web corroboration. A sensible next step is a separate
+framing/context check on top of the literal-fact verification. (To reproduce the
+table, run `python -m training.eval_claim_check` and join the saved predictions
+in `eval_claim_check_liar.json` with the LIAR labels.)
 
 Reproduce (requires LLM + Tavily keys; LIAR loads via `datasets<3`, which
 still supports script datasets):
@@ -565,25 +560,22 @@ python -m backend.eval --dataset jsonl --path data/eval/gonzaloa_test_500.jsonl 
 | Per-claim, raw         | 0.467    | 0.400    | 0.259  | 0.639   |
 | Per-claim, calibrated  | 0.600    | 0.489    | 0.262  | 0.537   |
 
-Two things to read off this:
+Two takeaways:
 
-* **Default is badly threshold-miscalibrated, then sharply fixed.** Raw
-  scores cluster around 50-65; threshold-at-50 metrics underperform
-  ranking metrics (AUC 0.82). Calibration lines up the threshold with
-  actual reliability and accuracy jumps 33 points without sacrificing
-  ranking.
-* **Per-claim is already well-calibrated** — Brier barely moves (0.259 →
-  0.262) because there isn't much miscalibration to fix. The pipeline is
-  intentionally conservative on raw text without URLs (claims hard to
-  directly verify → scores pulled to the 50 prior). Calibration sharpens
-  thresholds modestly but cannot manufacture ranking signal.
+* Default is badly threshold-miscalibrated, then sharply fixed. Raw scores
+  cluster around 50-65, so threshold-at-50 metrics underperform the ranking
+  metrics (AUC 0.82). Calibration lines the threshold up with actual reliability
+  and accuracy jumps 33 points without hurting ranking.
+* Per-claim is already well-calibrated — Brier barely moves (0.259 → 0.262)
+  because there isn't much to fix. It is intentionally conservative on raw text
+  without URLs (hard-to-verify claims get pulled toward the 50 prior), so
+  calibration sharpens thresholds a little but can't manufacture ranking signal.
 
-The headline takeaway for the writeup: **per-claim trades raw
-classification performance on ISOT-style benchmarks for calibrated
-uncertainty — appropriate where false confidence is costly.** Default +
-calibration is the strongest *measured* configuration on this benchmark.
-Per-claim's expected wins are on claim-verifiability benchmarks (FEVER
-article-level, AVeriTeC); that's the next experiment.
+In short, per-claim trades raw classification accuracy on ISOT-style benchmarks
+for calibrated uncertainty, which is the right tradeoff where false confidence is
+costly. Default + calibration is the strongest measured configuration here;
+per-claim's expected wins are on claim-verifiability benchmarks (FEVER
+article-level, AVeriTeC), which is the next experiment.
 
 Calibrators are pipeline-specific — a calibrator fit on one pipeline's
 outputs is not portable to another (or to a sufficiently different
@@ -710,11 +702,9 @@ a claim** (`pipeline_claim_check.py`) and **Citation audit**
 (`citation_audit.py`) — together with their benchmarks and eval drivers
 (`training/build_benchmark.py` LIAR loader, `training/eval_claim_check.py`,
 `training/build_citation_benchmark.py`, `training/eval_citation_audit.py`) and
-a fix capping LLM `max_tokens` in `llm_client.py`. All architectural
-decisions, the scoring/fusion design, the experimental setup, and the final
-review of generated code were directed and verified by the author. <!--
-TODO(author): adjust this paragraph to accurately reflect your own usage —
-e.g. which parts you wrote by hand vs. with assistance. -->
+a fix capping LLM `max_tokens` in `llm_client.py`. I directed and verified the
+architecture, the scoring/fusion design, the experimental setup, and all
+generated code.
 
 No part of the evaluation numbers reported here was generated or fabricated by
 an LLM — all metrics come from running the eval harness (`backend/eval/`) over
@@ -752,6 +742,4 @@ scikit-learn (isotonic regression reference), Tavily SDK. See
 `requirements.txt` / `requirements-nli.txt` for the full list.
 
 This project was built from scratch for CS 153; it does not fork or
-substantially borrow code from an existing repository. <!-- TODO(author): if
-you did start from any template/repo, cite it here with a description of your
-changes. -->
+substantially borrow code from an existing repository.
