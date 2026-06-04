@@ -33,6 +33,22 @@ calibrator for the scores. The [demo script](docs/VIDEO_SCRIPT.md), the
 [evaluation write-up](docs/EVALUATION.md), and the AI-usage disclosure (further
 down) cover the rest.
 
+## Contents
+
+* [How reliability is assessed](#how-reliability-is-assessed)
+* [Project layout](#project-layout)
+* [Setup](#setup) · [Run](#run) · [API](#api) · [Tests](#tests)
+* [Evaluation](#evaluation)
+  * [Claim verification (LIAR)](#claim-verification-liar)
+  * [Citation audit (synthetic)](#citation-audit-synthetic)
+* [Per-claim verification pipeline](#per-claim-verification-pipeline)
+* [Self-reflective verification](#self-reflective-verification-per-claim-reflective-mode)
+* [Score calibration](#score-calibration)
+* [Local NLI stance labeler](#local-nli-stance-labeler-fine-tuned)
+* [Compute requirements](#compute-requirements) · [Limitations](#limitations)
+* [AI usage disclosure](#ai-usage-disclosure)
+* [Citations & acknowledgements](#citations-data-sources--acknowledgements)
+
 ## How reliability is assessed
 
 Three independent signals are computed and combined:
