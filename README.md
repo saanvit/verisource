@@ -37,7 +37,7 @@ down) cover the rest.
 
 * [How reliability is assessed](#how-reliability-is-assessed)
 * [Project layout](#project-layout)
-* [Setup](#setup) · [Run](#run) · [API](#api) · [Tests](#tests)
+* [Setup](#setup) · [Run](#run) · [Deployment](#deployment) · [API](#api) · [Tests](#tests)
 * [Evaluation](#evaluation)
   * [Claim verification (LIAR)](#claim-verification-liar)
   * [Citation audit (synthetic)](#citation-audit-synthetic)
@@ -126,6 +126,9 @@ cs153project/
 
 ## Setup
 
+Just want to try it? Use the [live demo](https://veritysource-ylv7z.ondigitalocean.app)
+above — no setup needed. To run it yourself:
+
 Requires Python 3.10+.
 
 ```bash
@@ -143,7 +146,8 @@ cp .env.example .env
 The keys are optional — without them the app still runs, degraded:
 * No LLM key (`OPENROUTER_API_KEY` / `MISTRAL_API_KEY`): content analysis falls
   back to a lexical heuristic.
-* No `TAVILY_API_KEY`: cross-reference is skipped (its weight goes to 0).
+* No `TAVILY_API_KEY`: search falls back to a keyless DuckDuckGo scrape, so
+  cross-reference still works (lower quality, no key required).
 
 ## Run
 
@@ -152,6 +156,21 @@ python -m backend.main
 ```
 
 Then open <http://localhost:8000>.
+
+## Deployment
+
+The live demo runs on DigitalOcean App Platform from this repo. Deployment is
+buildpack-based and needs no Docker:
+
+* `Procfile` — `web: uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+* `.python-version` — pins Python 3.11 (the default buildpack picks a version
+  with no `pydantic-core` wheel).
+* Env vars set in the dashboard: `OPENROUTER_API_KEY`, `TAVILY_API_KEY`,
+  `NLI_BACKEND=llm` (the deploy installs `requirements.txt` only, not the heavy
+  NLI stack), and `OPENROUTER_MODEL`.
+
+Point App Platform at the repo, set those env vars, and it deploys on every push
+to `main`.
 
 ## API
 
