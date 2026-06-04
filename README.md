@@ -5,10 +5,11 @@ Live demo: https://veritysource-ylv7z.ondigitalocean.app
 Most "is this reliable?" tools score the *publisher*. VeriSource checks the
 actual *claims*.
 
-Give it a URL, some text, or a single claim. It breaks the content into
-individual factual claims, searches the open web for each, and returns a 0-100
-score with the sources that back the claim up — and the ones that don't — so you
-can check its work.
+Give it a URL, an article, a single claim, even a tweet. It breaks the content
+into individual factual claims, searches the open web for each, and returns a
+0-100 score with the sources that back the claim up (and the ones that don't),
+so you can check its work. Point it at an article and it can also run the
+reverse: auditing whether every link actually backs the sentence citing it.
 
 The trick: it doesn't just hunt for evidence that a claim is true. It runs a
 second search built to prove the claim *false*. On the LIAR fact-checking
