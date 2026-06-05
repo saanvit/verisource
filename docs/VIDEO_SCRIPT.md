@@ -61,20 +61,21 @@ cut to the result, or talk over the staged-reveal animation while it loads.
 
 ## 1:05–1:50 — Q2a: Check a claim (the headline demo)
 
-**On screen:** Click **Check a claim**. Paste *"5G cell towers spread the
-COVID-19 virus."* Hit Assess.
+**On screen:** Click **Check a claim**. Paste **`5G networks spread the COVID-19
+virus.`** Hit Assess.  *(verified live: score 3, contradicted, refuted)*
 
 > "Start with the simplest mode — just a claim, no article. It retrieves
 > independent evidence, labels each source, and then runs an **adversarial
 > search**: a second query deliberately built to falsify the claim."
 
-**On screen:** Result reveals — low score, **contradicted**, the evidence list,
+**On screen:** Result reveals — score 3, **contradicted**, the evidence list,
 the **refuted** robustness chip. Expand it to show the adversarial query.
 
 > "It's refuted — the falsification search surfaced credible sources debunking
 > it, and I can click straight through to each one."
 
-**On screen:** Paste the Perseverance claim → supported / survived.
+**On screen:** Paste **`The James Webb Space Telescope launched on December 25,
+2021.`**  *(verified live: score 100, supported, survived)*
 
 > "A true claim survives the same probe — supported, and it 'survived' the
 > adversarial search instead of being refuted."
@@ -104,16 +105,19 @@ Assess.
 
 **On screen:** Switch to **Deep** mode, run an article, open the **Agent trace** tab.
 
-> "The hardest part is stance labeling — the model sometimes marks obviously-
-> supporting evidence as 'unclear.' So Deep mode adds a self-critique agent:
-> after the first pass, Claude audits its own verifications, and emits structured
-> fixes — relabel a misjudged source, re-search a weak query, split a compound
-> claim — which the system then executes."
+> "The trickiest step is judging whether a source actually supports a claim — and
+> the model sometimes gets it wrong, marking clear evidence as 'unclear.' So Deep
+> mode adds a second pass: an agent that checks its own work.
+>
+> After the first round, Claude reviews every verification, finds the mistakes,
+> and fixes them — it'll relabel a source it misjudged, re-search a weak query, or
+> split a claim that was really two claims in one."
 
-**On screen:** point at a round card with a relabel + score delta.
+**On screen:** point at a round card with a relabel + the score change.
 
-> "And it's all shown — every correction the agent made, with the score change,
-> right here. Nothing's hidden."
+> "And here's the part I like: it shows you everything it changed — every
+> correction, and how it moved the score. So the most error-prone step in the
+> whole system is right out in the open, instead of hidden."
 
 ---
 
