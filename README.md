@@ -47,6 +47,7 @@ calibrator for the scores. The [demo script](docs/VIDEO_SCRIPT.md),
 * [Score calibration](#score-calibration)
 * [Local NLI stance labeler](#local-nli-stance-labeler-fine-tuned)
 * [Compute requirements](#compute-requirements) · [Limitations](#limitations)
+* [Conclusions](#conclusions)
 * [AI usage disclosure](#ai-usage-disclosure)
 * [Citations & acknowledgements](#citations-data-sources--acknowledgements)
 
@@ -715,6 +716,33 @@ the 1 decomposition call to the API.
   claim, especially for nuanced policy/scientific claims. Use the
   per-source labels as hints, not ground truth.
 * No author or publication-date verification is performed.
+
+## Conclusions
+
+VeriSource began as a three-signal source-reliability scorer and grew into a
+claim-level fact-checking toolkit: three article-analysis depths, two standalone
+tools (Check a claim and Citation audit), a fine-tuned NLI stance model, score
+calibration, and an eval harness — all deployed and reproducible from this repo.
+
+The clearest result is that **the adversarial search matters more than the
+model**. On LIAR, searching for evidence that a claim is *false* (not just true)
+raised macro-F1 from 0.33 to 0.62; without it, the system behaves like a plain
+zero-shot LLM and labels almost everything reliable. Calibration was the other
+big lever: web search and the LLM already separate reliable from unreliable on
+GonzaloA (ROC-AUC 0.52 → 0.78), and isotonic calibration turned that ranking
+signal into accuracy (0.47 → 0.80 on the held-out split).
+
+The evaluation also mapped out where each approach fits. Whole-article judgment
+wins on style-based fake-news data; claim-level verification is built for
+claim-verifiability data; and the system's remaining errors are nearly all one
+kind — claims that are literally true but misleadingly framed, which is exactly
+where human fact-checkers still add value.
+
+Honest limits: the LIAR result is n=60, the GonzaloA LLM runs are n=50, and the
+citation-audit benchmark is synthetic, so the headline numbers are directional
+rather than definitive. The natural next steps are a framing/context check
+layered on top of the literal-fact verification, and a harder citation benchmark
+with on-topic-but-unsupportive negatives.
 
 ## AI usage disclosure
 
