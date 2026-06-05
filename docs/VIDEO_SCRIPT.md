@@ -24,9 +24,10 @@ cut to the result, or talk over the staged-reveal animation while it loads.
 
 **On screen:** the landing page; the five mode tiles visible.
 
-> "Fact-checking has always taken an organization — rooms of researchers at
-> PolitiFact or Snopes. This is one person asking how much of that an AI stack
-> can now do on its own.
+> "Anyone can publish anything online now, and AI is writing more of it every day
+> — fluent, confident, and often wrong. Fact-checking has always taken an
+> organization — rooms of researchers at PolitiFact or Snopes. This is one person
+> asking how much of that an AI stack can now do on its own.
 >
 > Most reliability tools just score the *publisher* — Times good, random blog
 > bad. They miss two things: a viral claim with no publisher at all, and a
