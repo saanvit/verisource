@@ -121,29 +121,38 @@ Assess.
 
 ---
 
-## 3:00–3:45 — Evaluation: does it actually work?
+## 3:00–3:50 — Evaluation: does it actually work?
 
-**On screen:** the **LIAR results table** on a slide.
+**On screen:** the evaluation slide (slide 3). Gesture to the LIAR table on the left.
 
-> "I evaluated the claim checker on LIAR, a real PolitiFact fact-checking
-> benchmark. The full pipeline hits 0.65 accuracy — but the key result is the
-> ablation: remove the adversarial search, or use a plain zero-shot LLM, and it
-> collapses to chance, because the model just trusts everything. That one step
-> lifts macro-F1 from 0.33 to 0.62 — it nearly doubles."
+> "So — does it actually work? I tested the claim checker on LIAR, a real
+> fact-checking benchmark built from PolitiFact ratings. The full pipeline gets
+> about 65% accuracy. But the number I really care about is this ablation, on the
+> left. If I turn off the adversarial search — the 'try to prove it false' step —
+> or replace the whole thing with a plain zero-shot LLM, performance collapses to
+> basically a coin flip: both drop to a 0.33 macro-F1. The reason is simple —
+> without actively looking for counter-evidence, the model just trusts almost
+> everything and labels it reliable. Turn the adversarial search back on, and
+> macro-F1 jumps from 0.33 to 0.62 — it nearly doubles. So that one step is doing
+> most of the work."
 
-**On screen:** GonzaloA / calibration numbers.
+**On screen:** gesture to the three stat callouts on the right.
 
-> "On a separate fake-news benchmark, web search lifts ranking from a coin-flip
-> to 0.78 AUC, and calibration turns that into accuracy — 0.47 up to 0.80. And
-> the fine-tuned NLI labeler beat the LLM labeler, 0.88 to 0.71, while running
-> sixty times faster."
+> "A couple more results, on the right. On a separate fake-news benchmark, adding
+> web search takes the model's ranking ability from a coin flip up to 0.78, and
+> then calibration converts that into real accuracy — from 0.47 up to 0.80. And
+> the DeBERTa stance model I fine-tuned beat the general-purpose LLM at labeling
+> evidence — 0.88 versus 0.71 — while running about sixty times faster, and far
+> cheaper."
 
-**On screen:** the error-analysis bullets.
+**On screen:** the honest-limits footnote at the bottom.
 
-> "I also looked at where it fails: almost every error is a claim that's
-> *literally* true but misleadingly framed — cherry-picked stats, paraphrases —
-> which is exactly where a human fact-checker still adds judgment. I'm upfront
-> about that, and about the small sample sizes, in the repo."
+> "I also dug into the failures, and they're not random — almost every error is
+> the same kind: a claim that's literally true but framed in a misleading way,
+> like a cherry-picked statistic or a paraphrase. That's exactly the gray area
+> where a human fact-checker still adds judgment that retrieval can't. And I'm
+> upfront about the limits in the repo: these are small samples — sixty and fifty
+> examples — so I treat the numbers as directional, not final."
 
 ---
 
