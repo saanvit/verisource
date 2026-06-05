@@ -42,15 +42,20 @@ cut to the result, or talk over the staged-reveal animation while it loads.
 
 **On screen:** Click **How it works**; show the three-signal diagram, then close it.
 
-> "Under the hood, a reliability score fuses three signals: a domain-reputation
-> prior from Media Bias/Fact Check and AllSides; an LLM content analysis of the
-> writing itself; and the core signal — cross-referencing. For that one, the
-> article is broken into individual atomic claims, each claim is searched on the
-> open web, and every result is stance-labeled — supports, contradicts, or
-> unclear — then weighted by how reputable that source is. The stance labels run
-> through a DeBERTa model I fine-tuned for this, and the final scores are
-> calibrated so a 70 actually means roughly seventy-percent likely reliable.
-> Everything's traceable — you can open any claim and see the evidence."
+> "Under the hood, it blends three signals.
+>
+> One: how reputable the source is — using ratings from Media Bias/Fact Check and
+> AllSides. Two: an LLM reads the writing itself. And three, the main one —
+> cross-referencing.
+>
+> It breaks the article into individual claims, searches the web for each one, and
+> labels every result supports, contradicts, or unclear — weighted by how
+> trustworthy the source is. Those labels come from a DeBERTa model I fine-tuned
+> myself.
+>
+> The scores are calibrated, too — so a 70 really does mean about seventy-percent
+> likely reliable. And the best part: it's all traceable. Open any claim, see the
+> evidence, and check it yourself."
 
 ---
 
