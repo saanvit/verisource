@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1280, initial-scale=1" />
+<title>VeriSource — Slides</title>
+<style>
+  :root{
+    --bg:#0A0E1A; --card:#151B2E; --border:#2A3350; --core:#0F2438; --cyan:#22D3EE;
+    --purple:#7C5CFF; --blue:#5B8DEF; --light:#EAEEF7; --muted:#97A1B8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:#000;font-family:"Inter","Helvetica Neue",Arial,sans-serif;}
+  .slide{
+    width:1280px;height:720px;background:
+      radial-gradient(1100px 700px at 78% 30%, rgba(124,92,255,.18), transparent 60%),
+      radial-gradient(900px 600px at 12% 90%, rgba(34,211,238,.12), transparent 60%),
+      var(--bg);
+    color:var(--light);position:relative;overflow:hidden;
+  }
+  /* ---------- Slide 1 ---------- */
+  .eyebrow{position:absolute;left:84px;top:88px;font-size:15px;letter-spacing:.22em;
+    color:var(--muted);font-weight:700;}
+  .wordmark{position:absolute;left:80px;top:150px;font-size:104px;font-weight:800;
+    letter-spacing:-.02em;line-height:1;}
+  .wordmark .src{color:var(--cyan);}
+  .tagline{position:absolute;left:84px;top:330px;width:720px;font-size:26px;color:var(--light);}
+  .hook{position:absolute;left:84px;top:392px;width:720px;font-size:24px;color:var(--cyan);
+    font-style:italic;}
+  .footer{position:absolute;left:84px;bottom:70px;font-size:18px;color:var(--muted);}
+  .footer b{color:var(--light);font-weight:700;}
+  .footer .url{margin-left:26px;}
+  .glyph{position:absolute;right:120px;top:175px;width:380px;height:380px;}
+  /* ---------- shared cards ---------- */
+  .h2{position:absolute;left:84px;top:70px;font-size:46px;font-weight:800;letter-spacing:-.01em;}
+  .card{position:absolute;background:var(--card);border:1px solid var(--border);
+    border-radius:14px;padding:16px 18px;}
+  .card .t{font-weight:700;font-size:18px;color:var(--light);margin-bottom:6px;}
+  .card .s{font-size:14px;color:var(--muted);line-height:1.35;}
+  .label{position:absolute;font-size:14px;letter-spacing:.16em;color:var(--muted);font-weight:700;}
+  .arrow{position:absolute;color:#5b6488;font-size:30px;}
+  .core{background:var(--core);border-color:var(--cyan);}
+  .core .t{color:var(--cyan);}
+  .accentP{border-color:var(--purple);} .accentP .t{color:var(--purple);}
+  .accentC{border-color:var(--cyan);} .accentC .t{color:var(--cyan);}
+  /* ---------- slide 3: numbers ---------- */
+  .evaltable{width:636px;border-collapse:collapse;font-size:17px;}
+  .evaltable th,.evaltable td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--border);}
+  .evaltable th{color:var(--muted);font-size:12px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
+  .evaltable td:not(:first-child),.evaltable th:not(:first-child){text-align:right;
+    font-variant-numeric:tabular-nums;width:74px;}
+  .evaltable td{color:#c4ccdd;}
+  .evaltable tr.win td{background:rgba(34,211,238,.09);color:var(--light);font-weight:700;}
+  .evaltable tr.win td:first-child{border-left:3px solid var(--cyan);}
+  .stat{position:absolute;width:400px;}
+  .stat .big{font-size:44px;font-weight:800;letter-spacing:-.01em;line-height:1.12;}
+  .stat .lab{font-size:15px;color:var(--muted);margin-top:7px;line-height:1.3;}
+  .caveat{position:absolute;left:84px;bottom:52px;width:1112px;font-size:14px;color:var(--muted);line-height:1.4;}
+</style>
+</head>
+<body>
+
+<!-- ================= SLIDE 1 ================= -->
+<section class="slide" id="s1">
+  <div class="eyebrow">CS 153 · THE ONE-PERSON FRONTIER LAB</div>
+  <div class="wordmark">Veri<span class="src">Source</span></div>
+  <div class="tagline">Reliability for the open web — it checks the claims, not just the publisher.</div>
+  <div class="hook">Anyone can publish anything. Almost no one can check it.</div>
+  <div class="footer"><b>Saanvi Thummalapally</b><span class="url">veritysource-ylv7z.ondigitalocean.app</span></div>
+  <svg class="glyph" viewBox="0 0 380 380" fill="none" aria-hidden="true">
+    <circle cx="190" cy="190" r="150" stroke="#39456E" stroke-width="2"/>
+    <circle cx="190" cy="190" r="92" stroke="#4A5688" stroke-width="2"/>
+    <line x1="190" y1="190" x2="190" y2="40"  stroke="#44507A" stroke-width="2"/>
+    <line x1="190" y1="190" x2="60"  y2="265" stroke="#44507A" stroke-width="2"/>
+    <line x1="190" y1="190" x2="320" y2="265" stroke="#44507A" stroke-width="2"/>
+    <circle cx="190" cy="40"  r="13" fill="#7C5CFF"/>
+    <circle cx="60"  cy="265" r="13" fill="#5B8DEF"/>
+    <circle cx="320" cy="265" r="13" fill="#22D3EE"/>
+    <circle cx="190" cy="190" r="26" fill="#7C5CFF" stroke="#22D3EE" stroke-width="3"/>
+  </svg>
+</section>
+
+<!-- ================= SLIDE 2 ================= -->
+<section class="slide" id="s2">
+  <div class="h2">How VeriSource works</div>
+
+  <!-- input -->
+  <div class="card" style="left:84px;top:200px;width:235px;height:190px;">
+    <div class="t" style="color:var(--cyan)">INPUT</div>
+    <div class="s">URL<br/>Article text<br/>A single claim<br/>A tweet</div>
+  </div>
+  <div class="arrow" style="left:330px;top:280px;">→</div>
+
+  <!-- three signals -->
+  <div class="label" style="left:392px;top:165px;">THREE SIGNALS</div>
+  <div class="card" style="left:390px;top:200px;width:400px;height:56px;">
+    <div class="t" style="margin:0;display:inline">Domain reputation</div>
+    <span class="s"> &nbsp;— MBFC · Ad Fontes · AllSides</span>
+  </div>
+  <div class="card" style="left:390px;top:266px;width:400px;height:56px;">
+    <div class="t" style="margin:0;display:inline">Content analysis (LLM)</div>
+    <span class="s"> &nbsp;— factuality · objectivity · flags</span>
+  </div>
+  <div class="card core" style="left:390px;top:332px;width:400px;height:90px;">
+    <div class="t">Cross-reference · core signal</div>
+    <div class="s">decompose → search the web → NLI stance,<br/>plus an adversarial “prove it false” search</div>
+  </div>
+  <div class="arrow" style="left:800px;top:280px;">→</div>
+
+  <!-- fuse + score -->
+  <div class="card accentP" style="left:858px;top:200px;width:338px;height:88px;">
+    <div class="t">Weighted fusion</div>
+    <div class="s">dynamic weights + isotonic calibration</div>
+  </div>
+  <div class="arrow" style="left:1010px;top:292px;transform:rotate(90deg);">→</div>
+  <div class="card accentC" style="left:858px;top:334px;width:338px;height:88px;">
+    <div class="t">Reliability 0–100 + verdict</div>
+    <div class="s">with every source shown, click-through</div>
+  </div>
+
+  <!-- tools -->
+  <div class="label" style="left:84px;top:500px;letter-spacing:.04em;font-size:18px;color:var(--light);">Two focused tools on the same engine</div>
+  <div class="card accentP" style="left:84px;top:540px;width:546px;height:96px;">
+    <div class="t">Check a claim</div>
+    <div class="s">paste a claim, headline, or tweet → adversarial fact-check with cited evidence</div>
+  </div>
+  <div class="card accentC" style="left:650px;top:540px;width:546px;height:96px;">
+    <div class="t">Citation audit</div>
+    <div class="s">does each source an article links to actually back the sentence citing it?</div>
+  </div>
+</section>
+
+<!-- ================= SLIDE 3 — NUMBERS ================= -->
+<section class="slide" id="s3">
+  <div class="h2">Does it actually work?</div>
+
+  <!-- LIAR ablation table -->
+  <div class="label" style="left:84px;top:160px;">CLAIM VERIFICATION · LIAR BENCHMARK · n=60</div>
+  <table class="evaltable" style="position:absolute;left:84px;top:190px;">
+    <tr><th>configuration</th><th>acc</th><th>F1</th><th>AUC</th></tr>
+    <tr class="win"><td>Claim-check — adversarial</td><td>0.65</td><td>0.62</td><td>0.66</td></tr>
+    <tr><td>without adversarial</td><td>0.48</td><td>0.33</td><td>0.47</td></tr>
+    <tr><td>zero-shot LLM baseline</td><td>0.48</td><td>0.33</td><td>0.50</td></tr>
+  </table>
+  <div style="position:absolute;left:84px;top:410px;width:636px;color:var(--cyan);font-size:19px;font-style:italic;">
+    The adversarial “prove it false” search nearly doubles macro-F1.
+  </div>
+
+  <!-- stat callouts -->
+  <div class="stat" style="left:772px;top:185px;">
+    <div class="big" style="color:var(--cyan)">0.33 → 0.62</div>
+    <div class="lab">macro-F1 — from the adversarial-retrieval step</div>
+  </div>
+  <div class="stat" style="left:772px;top:300px;">
+    <div class="big" style="color:var(--purple)">0.47 → 0.80</div>
+    <div class="lab">accuracy — after isotonic calibration (GonzaloA)</div>
+  </div>
+  <div class="stat" style="left:772px;top:415px;">
+    <div class="big" style="color:var(--blue)">0.88 vs 0.71</div>
+    <div class="lab">fine-tuned NLI vs the LLM labeler — and ~60× faster</div>
+  </div>
+
+  <div class="caveat">
+    Honest limits: LIAR n=60 and the GonzaloA LLM runs n=50 (directional), and the citation benchmark is
+    synthetic. The errors aren’t random — 20 of 21 are claims that are literally true but misleadingly framed.
+  </div>
+</section>
+
+</body>
+</html>
