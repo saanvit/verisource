@@ -20,17 +20,20 @@ cut to the result, or talk over the staged-reveal animation while it loads.
 
 ---
 
-## 0:00–0:25 — Q1: Why I built this (the bottleneck + the insight)
+## 0:00–0:30 — Q1: Why I built this (the hook + the insight)
 
 **On screen:** the landing page; the five mode tiles visible.
 
-> "Most 'is this reliable?' tools score the *publisher* — they tell you the New
-> York Times is trustworthy and some random blog isn't. But two things slip
-> right through that: a viral claim with no publisher at all, and a respectable
-> article that links to a source which doesn't actually back up what it's citing.
-> VeriSource checks the *claims and the citations themselves*. And the core idea
-> is simple: don't just look for evidence that confirms a claim — actively search
-> for evidence that it's **false**."
+> "Fact-checking has always taken an organization — rooms of researchers at
+> PolitiFact or Snopes. This is one person asking how much of that an AI stack
+> can now do on its own.
+>
+> Most reliability tools just score the *publisher* — Times good, random blog
+> bad. They miss two things: a viral claim with no publisher at all, and a
+> trustworthy-looking article that links to a source which doesn't actually back
+> up what it's citing. VeriSource checks the *claims and citations themselves*.
+> And the core idea is dead simple: don't just look for evidence a claim is true
+> — go hunting for evidence it's **false**."
 
 ---
 
@@ -154,6 +157,13 @@ Assess.
 > browser extension. It's deployed on DigitalOcean, it runs from a clean clone —
 > even with no API keys, thanks to a keyless search fallback — and the full
 > evaluation, error analysis, and AI-usage disclosure are all in the repo."
+
+**On screen:** quick scroll over the repo / the five tiles.
+
+> "Everything you just saw — the retrieval pipeline, a fine-tuned stance model, a
+> self-critique agent, the eval suite against real benchmarks, the deployment —
+> is one person with frontier tools building what used to take a whole team.
+> That's the bet behind this, and that's VeriSource."
 
 **End card:** `github.com/saanvit/verisource` · live at
 `veritysource-ylv7z.ondigitalocean.app`
