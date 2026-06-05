@@ -761,7 +761,7 @@ documented throughout this README.
 **AI as a development tool.** AI coding assistants (**Claude Code** /
 Anthropic Claude) were used during development to help implement and refactor
 parts of the backend pipeline, the frontend UI, the evaluation harness, and
-this documentation. This includes the two focused verification tools — **Check
+this documentation/script. This includes the two focused verification tools — **Check
 a claim** (`pipeline_claim_check.py`) and **Citation audit**
 (`citation_audit.py`) — together with their benchmarks and eval drivers
 (`training/build_benchmark.py` LIAR loader, `training/eval_claim_check.py`,
